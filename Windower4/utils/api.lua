@@ -17,11 +17,16 @@ local function generate_token(player_name, server_id)
     return sha.sha256(input)
 end
 
+local function format_position(pos)
+    if not pos then return nil end
+    return tostring(pos):gsub("^%((.+)%)$", "%1")
+end
+
 -- Submit NM/??? report to backend
 function M.submit_report(area, tower, floor, spawn_type, position)
     local player_info = windower.ffxi.get_player()
     local server_info = windower.ffxi.get_info()
-    local position_info = windower.ffxi.get_position
+    local position_info = windower.ffxi.get_position()
     
     if not player_info or not server_info then
         log("Cannot get player/server info")
@@ -32,7 +37,7 @@ function M.submit_report(area, tower, floor, spawn_type, position)
     local server_id = server_info.server
     local server_name = res.servers[server_id].en
     local token = generate_token(player_name, server_id)
-    local position = position_info
+    local position = format_position(position_info)
     
     local body = json.stringify({
         area = area,
@@ -57,20 +62,37 @@ end
 
 -- Get latest reports for server
 function M.get_latest_reports(server_id)
+    local player_info = windower.ffxi.get_player()
+    local server_info = windower.ffxi.get_info()
+
+    if not player_info or not server_info then
+        log("Cannot get player/server info")
+        return "Unable to fetch latest reports"
+    end
+
+    local player_name = player_info.name
+    local server_id = server_info.server
     local server_name = res.servers[server_id].en
+    local token = generate_token(player_name, server_id)
+
     local url = base_url .. "/api/v1/reports/recent/" .. server_name
-    
-    local body, status_code = https.request(url)
-    
-    if status_code == 200 then
-        local result = json.parse(body)
+
+    local headers = {
+        ["Authorization"] = "Bearer " .. token
+    }
+
+    local success, response = get_request(url, headers)
+
+    if success then
+        local result = json.parse(response)
         if result and result.success and result.data.reports then
             return format_reports_display(result.data.reports)
         end
     end
-    
+
     return "Unable to fetch latest reports"
 end
+
 
 -- HTTP POST helper
 function post_request(url, body)
@@ -99,6 +121,31 @@ function post_request(url, body)
         return false, "HTTP " .. status_code .. ": " .. response_text
     end
 end
+
+function get_request(url, headers)
+    local response_body = {}
+
+    headers = headers or {}
+    headers["User-Agent"] = "WhereIsNM/" .. _addon.version
+    headers["X-Client-Type"] = "WhereIsNM-Addon"
+
+    local result, status_code = https.request{
+        url = url,
+        method = "GET",
+        headers = headers,
+        sink = ltn12.sink.table(response_body)
+    }
+
+    local response_text = table.concat(response_body)
+
+    if status_code == 200 then
+        return true, response_text
+    else
+        return false, "HTTP " .. status_code .. ": " .. response_text
+    end
+end
+
+
 
 -- Format reports for display
 function format_reports_display(reports)
