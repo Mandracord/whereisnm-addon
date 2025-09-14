@@ -1,4 +1,4 @@
-_addon.name = 'Whereisnm'
+_addon.name = 'WhereIsNM'
 _addon.author = 'Mandracord Team'
 _addon.version = '0.0.1'
 _addon.commands = {'nm','whereisnm'}
@@ -9,12 +9,12 @@ require('logger')
 texts = require('texts')
 res = require('resources')
 config = require('config')
-api = require('utils/api')
+api = require('api')
 
 --[[
 Changelog
 
-v0.0.1 : First release, beta testing 
+v0.0.1 : First release, beta testing
 
 ]]
 
@@ -33,7 +33,9 @@ defaults.flags.draggable = true
 defaults.show_displaybox = true
 
 settings = config.load(defaults)
-local displaybox = texts.new(settings.defaults)
+local displaybox = texts.new('${nm_info}', settings.text, settings)
+local last_reports = ""
+local auto_refresh_enabled = false
 
 -------------------------------------------------------------------------
 -- DO NOT EDIT BELOW
@@ -41,32 +43,9 @@ local displaybox = texts.new(settings.defaults)
 
 windower.register_event('load','login',function ()
     if windower.ffxi.get_info().logged_in then
-        windower.add_to_chat(123, string.format('[%s] Thank you for using Whereisnm! Use \\cs(100,255,100)//nm\\cr to get the latest update.', _addon.name))
-        coroutine.schedule(login, 5)
+        windower.add_to_chat(123, string.format('[%s] Thank you for using WhereIsNM! Use //nm to get the latest update.', _addon.name))
     end
 end)
-
-function parse_zone_args(area_arg, tower_arg, floor)
-    -- Handle abbreviations: tn = temenos north, etc.
-    local area_map = {
-        t = 'temenos', te = 'temenos', tem = 'temenos', temenos = 'temenos',
-        a = 'apollyon', ap = 'apollyon', apo = 'apollyon', apollyon = 'apollyon'
-    }
-    
-    local tower_map = {
-        n = 'northern', north = 'northern', northern = 'northern',
-        s = 'southern', south = 'southern', southern = 'southern', 
-        e = 'eastern', east = 'eastern', eastern = 'eastern',
-        w = 'western', west = 'western', western = 'western',
-        c = 'central', cent = 'central', central = 'central',
-        nw = 'nw', ne = 'ne', sw = 'sw', se = 'se'
-    }
-    
-    local area = area_map[area_arg:lower()]
-    local tower = tower_map[tower_arg:lower()]
-    
-    return area, tower, floor
-end
 
 function parse_zone_args(area_arg, tower_arg, floor)
     local area_map = {
@@ -89,14 +68,52 @@ function parse_zone_args(area_arg, tower_arg, floor)
     return area, tower, floor
 end
 
+function format_box_display(reports_text)
+    if not reports_text or reports_text == "Unable to fetch latest reports" then
+        return "No recent data"
+    end
+    
+    local lines = {}
+    local current_type = ""
+    
+    for line in reports_text:gmatch("[^\r\n]+") do
+        line = line:gsub("^%s+", ""):gsub("%s+$", "")
+        
+        if line:match("Reported NM") then
+            current_type = "[NM] "
+        elseif line:match("Reported %?%?%?") then
+            current_type = "[???] "
+        elseif line ~= "" and not line:match("Recent spawns") and not line:match("Reported") then
+            if current_type ~= "" then
+                table.insert(lines, current_type .. line)
+            else
+                table.insert(lines, line)
+            end
+        end
+    end
+    
+    if #lines == 0 then
+        return "No recent data"
+    end
+    
+    return table.concat(lines, "\n")
+end
+
 windower.register_event('addon command', function(command, ...)
     command = command and command:lower() or 'help'
     local args = L{...}
     
     if command == 'report' then
-        local spawn_type = 'question' -- default to ???
+        local spawn_type = 'question'
         local area, tower, floor
-        
+        local zone_info = windower.ffxi.get_info()
+        local zone_name = res.zones[zone_info.zone] and res.zones[zone_info.zone].en or 'Unknown Zone'
+
+        if not (zone_name:find("Temenos") or zone_name:find("Apollyon")) then
+            windower.add_to_chat(123, 'You must be in Limbus (Temenos or Apollyon) to report NM or ???.')
+            return
+        end
+
         if args[1] and args[1]:lower() == 'nm' then
             spawn_type = 'nm'
             if args[2] and args[3] and args[4] then
@@ -130,7 +147,39 @@ windower.register_event('addon command', function(command, ...)
         end
         
         api.submit_report(area, tower, floor, spawn_type)
+        
+    elseif command == 'show' then
+        local reports = api.get_latest_reports(windower.ffxi.get_info().server)
+        last_reports = reports
+        displaybox.nm_info = format_box_display(reports)
+        displaybox:show()
+        auto_refresh_enabled = true
+        windower.add_to_chat(123, 'WhereIsNM Displaybox shown')
+        
+    elseif command == 'hide' then
+        displaybox:hide()
+        auto_refresh_enabled = false
+        windower.add_to_chat(123, 'WhereIsNM Displaybox hidden')
+
+    elseif command == 'help' then 
+        windower.add_to_chat(180,'[WhereIsNM] Command prefix //nm or //whereisnm:')
+        windower.add_to_chat(180,'Each report has some data requirements: <zone> <tower/sector> <floor>')
+        windower.add_to_chat(180,'e.g //nm report t central 2 (Temenos central floor 2)')
+        windower.add_to_chat(180,'It is possible to use both full name or shortcut as t for Temenos, c for central.')
+        windower.add_to_chat(180,'See the readme for a full list.')
+        windower.add_to_chat(180,'------------------------------------------')
     else
         windower.add_to_chat(123, api.get_latest_reports(windower.ffxi.get_info().server))
+    end
+end)
+
+-- Auto-refresh the display 
+windower.register_event('time change', function(new, old)
+    if auto_refresh_enabled and displaybox:visible() and new % 5 == 0 then
+        local reports = api.get_latest_reports(windower.ffxi.get_info().server)
+        if reports ~= last_reports then
+            last_reports = reports
+            displaybox.nm_info = format_box_display(reports)
+        end
     end
 end)
