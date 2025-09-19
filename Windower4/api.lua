@@ -2,12 +2,14 @@ require("socket")
 require("strings") 
 require("ltn12")
 local https = require("socket.http")
+--local https = require("ssl.https")
 local json = require("json")
 local sha = require("sha2")
 res = require('resources')
 files = require('files')
 
 local base_url = "http://localhost:3000"
+--local base_url = "https://whereisnm.com"
 local reports_endpoint = base_url .. "/api/v1/reports"
 
 local M = {}
@@ -102,6 +104,22 @@ function M.get_latest_reports(server_id)
     else
         return "Unable to fetch latest reports"
     end
+end
+
+function M.check_addon_version()
+    local url = 'https://api.github.com/repos/Mandracord/whereisnm-addon/releases/latest'
+    local success, response = pcall(function()
+        return windower.http_get(url)
+    end)
+    
+    if success and response then
+        local data = json.decode(response)
+        if data and data.tag_name then
+            return data.tag_name:gsub('v', '')
+        end
+    end
+    
+    return nil
 end
 
 function format_reports_display(reports, server_name)
