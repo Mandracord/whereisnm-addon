@@ -112,7 +112,7 @@ end
 
 
 windower.register_event('addon command', function(command, ...)
-    command = command and command:lower() or 'help'
+    command = command and command:lower()
     local args = L{...}
     
     if command == 'report' then
