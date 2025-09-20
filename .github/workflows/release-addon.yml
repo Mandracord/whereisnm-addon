@@ -19,7 +19,6 @@ jobs:
     - name: Extract version from commit message
       id: version
       run: |
-        # Extract version pattern (x.y.z) from commit message
         VERSION=$(echo "${{ github.event.head_commit.message }}" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
         
         if [ -z "$VERSION" ]; then
@@ -40,16 +39,15 @@ jobs:
 
     - name: Create addon directory structure
       run: |
-        mkdir -p addon
+        mkdir -p addons/whereisnm
         
-        # Copy files from Windower4 to addon (excluding README.MD)
-        cp Windower4/whereisnm.lua addon/
-        cp Windower4/api.lua addon/
-        cp Windower4/sha2.lua addon/
+        cp Windower4/whereisnm.lua addons/whereisnm/
+        cp Windower4/api.lua addons/whereisnm/
+        cp Windower4/sha2.lua addons/whereisnm/
 
     - name: Create zip file
       run: |
-        zip -r whereisnm-v${{ steps.version.outputs.version }}.zip addon/
+        zip -r whereisnm-v${{ steps.version.outputs.version }}.zip addons/
 
     - name: Create Release
       id: create_release
