@@ -75,17 +75,36 @@ jobs:
       id: get_release
       if: steps.tag_check.outputs.tag_exists == 'true'
       run: |
-        UPLOAD_URL=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-          "https://api.github.com/repos/${{ github.repository }}/releases/tags/v${{ steps.tag_check.outputs.version }}" \
-          | jq -r '.upload_url')
+        RELEASE_DATA=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+          "https://api.github.com/repos/${{ github.repository }}/releases/tags/v${{ steps.tag_check.outputs.version }}")
+        
+        UPLOAD_URL=$(echo "$RELEASE_DATA" | jq -r '.upload_url')
+        
+        if [ "$UPLOAD_URL" = "null" ]; then
+          echo "Failed to get upload URL for existing release"
+          exit 1
+        fi
+        
         echo "upload_url=$UPLOAD_URL" >> $GITHUB_OUTPUT
 
-    - name: Upload Release Asset
+    - name: Upload Release Asset (New Release)
+      if: steps.tag_check.outputs.tag_exists == 'false'
       uses: actions/upload-release-asset@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        upload_url: ${{ steps.tag_check.outputs.tag_exists == 'true' && steps.get_release.outputs.upload_url || steps.create_release.outputs.upload_url }}
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./whereisnm-v${{ steps.tag_check.outputs.version }}.zip
+        asset_name: whereisnm-v${{ steps.tag_check.outputs.version }}.zip
+        asset_content_type: application/zip
+
+    - name: Upload Release Asset (Existing Release)
+      if: steps.tag_check.outputs.tag_exists == 'true'
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.get_release.outputs.upload_url }}
         asset_path: ./whereisnm-v${{ steps.tag_check.outputs.version }}.zip
         asset_name: whereisnm-v${{ steps.tag_check.outputs.version }}.zip
         asset_content_type: application/zip
