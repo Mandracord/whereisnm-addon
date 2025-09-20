@@ -1,117 +1,78 @@
-name: Windower & Ashita Addon Release
+name: Release Addon
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
     paths:
-      - 'Ashita/**'
       - 'Windower4/**'
 
 jobs:
-  build-and-release:
+  release:
     runs-on: ubuntu-latest
-
+    
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
-        fetch-depth: 2
+        fetch-depth: 0
 
-    - name: Get version from commit message
-      id: get_version
+    - name: Extract version from commit message
+      id: version
       run: |
-        VERSION=$(echo "${{ github.event.head_commit.message }}" | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+')
+        # Extract version pattern (x.y.z) from commit message
+        VERSION=$(echo "${{ github.event.head_commit.message }}" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+        
         if [ -z "$VERSION" ]; then
-          echo "No version found in commit message. Using default 0.0.0"
-          VERSION="0.0.0"
+          echo "No version found in commit message: ${{ github.event.head_commit.message }}"
+          exit 1
         fi
-        VERSION=${VERSION#v}  # remove leading 'v' if present
-        echo "version=$VERSION" >> $GITHUB_ENV
-        echo "Using version $VERSION"
+        
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "Found version: $VERSION"
 
-    - name: Configure git for tagging
+    - name: Check if tag already exists
+      id: check_tag
       run: |
-        git config user.name "github-actions"
-        git config user.email "github-actions@github.com"
+        if git rev-parse "v${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
+          echo "Tag v${{ steps.version.outputs.version }} already exists"
+          exit 1
+        fi
 
-    - name: Create Git tag
+    - name: Create addon directory structure
       run: |
-        git tag -f "v${{ env.version }}" -m "Release v${{ env.version }}"
-        git push origin --tags --force
+        mkdir -p addon
+        
+        # Copy files from Windower4 to addon (excluding README.MD)
+        cp Windower4/whereisnm.lua addon/
+        cp Windower4/api.lua addon/
+        cp Windower4/sha2.lua addon/
 
-    - name: Check if Ashita folder changed
-      id: ashita_changed
+    - name: Create zip file
       run: |
-        git fetch origin main
-        if git diff --name-only HEAD~1 HEAD | grep -q '^Ashita/'; then
-          echo "changed=true" >> $GITHUB_OUTPUT
-        else
-          echo "changed=false" >> $GITHUB_OUTPUT
+        zip -r whereisnm-v${{ steps.version.outputs.version }}.zip addon/
 
-    - name: Build Ashita Addon ZIP
-      if: steps.ashita_changed.outputs.changed == 'true'
-      run: |
-        mkdir -p ashita-addon/addons/whereisnm
-        cp Ashita/*.lua ashita-addon/addons/whereisnm/
-        cd ashita-addon
-        zip -r ../ashita-addon-${{ env.version }}.zip addons/
-        cd ..
-
-    - name: Create GitHub Release for Ashita
-      if: steps.ashita_changed.outputs.changed == 'true'
-      uses: softprops/action-gh-release@v1
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        tag_name: "v${{ env.version }}"
-        name: "Ashita Addon Release v${{ env.version }}"
-        body: "Ashita addon release v${{ env.version }}"
+        tag_name: v${{ steps.version.outputs.version }}
+        release_name: WhereIsNM v${{ steps.version.outputs.version }}
+        body: |
+          Release v${{ steps.version.outputs.version }}
+          
+          Changes:
+          ${{ github.event.head_commit.message }}
         draft: false
         prerelease: false
+
+    - name: Upload Release Asset
+      uses: actions/upload-release-asset@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Upload Ashita ZIP
-      if: steps.ashita_changed.outputs.changed == 'true'
-      uses: softprops/action-gh-release@v1
       with:
-        files: "ashita-addon-${{ env.version }}.zip"
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Check if Windower4 folder changed
-      id: windower_changed
-      run: |
-        git fetch origin main
-        if git diff --name-only HEAD~1 HEAD | grep -q '^Windower4/'; then
-          echo "changed=true" >> $GITHUB_OUTPUT
-        else
-          echo "changed=false" >> $GITHUB_OUTPUT
-
-    - name: Build Windower Addon ZIP
-      if: steps.windower_changed.outputs.changed == 'true'
-      run: |
-        mkdir -p windower-addon/addons/whereisnm
-        cp Windower4/*.lua windower-addon/addons/whereisnm/
-        cd windower-addon
-        zip -r ../windower-addon-${{ env.version }}.zip addons/
-        cd ..
-
-    - name: Create GitHub Release for Windower
-      if: steps.windower_changed.outputs.changed == 'true'
-      uses: softprops/action-gh-release@v1
-      with:
-        tag_name: "v${{ env.version }}"
-        name: "Windower Addon Release v${{ env.version }}"
-        body: "Windower addon release v${{ env.version }}"
-        draft: false
-        prerelease: false
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Upload Windower ZIP
-      if: steps.windower_changed.outputs.changed == 'true'
-      uses: softprops/action-gh-release@v1
-      with:
-        files: "windower-addon-${{ env.version }}.zip"
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./whereisnm-v${{ steps.version.outputs.version }}.zip
+        asset_name: whereisnm-v${{ steps.version.outputs.version }}.zip
+        asset_content_type: application/zip
