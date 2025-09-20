@@ -79,6 +79,7 @@ jobs:
           echo "changed=true" >> $GITHUB_OUTPUT
         else
           echo "changed=false" >> $GITHUB_OUTPUT
+        fi
 
     - name: Build Windower Addon ZIP
       if: steps.windower_changed.outputs.changed == 'true'
