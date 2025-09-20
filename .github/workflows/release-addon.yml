@@ -19,7 +19,6 @@ jobs:
     - name: Get version from commit message
       id: get_version
       run: |
-        # Extract version like v1.2.3 or 1.2.3 from commit message
         VERSION=$(echo "${{ github.event.head_commit.message }}" | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+')
         VERSION=${VERSION#v}  # remove leading 'v' if present
         if [ -z "$VERSION" ]; then
@@ -30,25 +29,35 @@ jobs:
         echo "Using version $VERSION"
 
     - name: Build Ashita Addon ZIP
-      if: contains(join(github.event.commits.*.modified, ' '), 'Ashita/') || contains(join(github.event.commits.*.added, ' '), 'Ashita/')
+      id: build_ashita
       run: |
         mkdir -p ashita-addon/addons/whereisnm
         cp Ashita/*.lua ashita-addon/addons/whereisnm/
         cd ashita-addon
         zip -r ../ashita-addon-$VERSION.zip addons/
         cd ..
+        if [ -f "ashita-addon-$VERSION.zip" ]; then
+          echo "zip_exists=true" >> $GITHUB_OUTPUT
+        else
+          echo "zip_exists=false" >> $GITHUB_OUTPUT
+        fi
 
     - name: Build Windower Addon ZIP
-      if: contains(join(github.event.commits.*.modified, ' '), 'Windower4/') || contains(join(github.event.commits.*.added, ' '), 'Windower4/')
+      id: build_windower
       run: |
         mkdir -p windower-addon/addons/whereisnm
         cp Windower4/*.lua windower-addon/addons/whereisnm/
         cd windower-addon
         zip -r ../windower-addon-$VERSION.zip addons/
         cd ..
+        if [ -f "windower-addon-$VERSION.zip" ]; then
+          echo "zip_exists=true" >> $GITHUB_OUTPUT
+        else
+          echo "zip_exists=false" >> $GITHUB_OUTPUT
+        fi
 
     - name: Create GitHub Release for Ashita
-      if: exists('ashita-addon-' + env.version + '.zip')
+      if: steps.build_ashita.outputs.zip_exists == 'true'
       uses: softprops/action-gh-release@v1
       with:
         tag_name: "ashita-v${{ env.version }}"
@@ -60,15 +69,15 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Upload Ashita ZIP
-      if: exists('ashita-addon-' + env.version + '.zip')
+      if: steps.build_ashita.outputs.zip_exists == 'true'
       uses: softprops/action-gh-release@v1
       with:
-        files: "ashita-addon-$VERSION.zip"
+        files: "ashita-addon-${{ env.version }}.zip"
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Create GitHub Release for Windower
-      if: exists('windower-addon-' + env.version + '.zip')
+      if: steps.build_windower.outputs.zip_exists == 'true'
       uses: softprops/action-gh-release@v1
       with:
         tag_name: "windower-v${{ env.version }}"
@@ -80,9 +89,9 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Upload Windower ZIP
-      if: exists('windower-addon-' + env.version + '.zip')
+      if: steps.build_windower.outputs.zip_exists == 'true'
       uses: softprops/action-gh-release@v1
       with:
-        files: "windower-addon-$VERSION.zip"
+        files: "windower-addon-${{ env.version }}.zip"
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
