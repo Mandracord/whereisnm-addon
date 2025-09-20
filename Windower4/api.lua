@@ -202,6 +202,33 @@ function format_reports_display(reports, server_name)
     return output
 end
 
+function M.check_version(current_version)
+    local version_url = base_url .. "/version"
+    
+    local success, response = get_request(version_url)
+    
+    if success then
+        local latest_version = parse_version_from_response(response)
+        
+        if latest_version then
+            if current_version ~= latest_version then
+                return string.format("You are running an outdated version! Current: %s, Latest: %s - Download update at: %s", 
+                    current_version, latest_version, base_url)
+            end
+        else
+            log_error("VERSION_PARSE_ERROR", "Could not parse version from response: " .. response)
+            return "Unable to check version"
+        end
+    else
+        return "Unable to check for updates"
+    end
+end
+
+function parse_version_from_response(response)
+    local version = response:match('"version":"([^"]*)"')
+    return version
+end
+
 
 
 -- HTTP POST helper
