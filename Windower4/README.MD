@@ -14,7 +14,7 @@ A Windower 4 addon for Final Fantasy XI that tracks the latest locations of roam
 
 ## Installation
 
-1. Download the latest release from the [Releases](../../releases) page
+1. Download the latest release from the [Releases](https://github.com/Mandracord/whereisnm-addon/releases/latest) page
 2. Extract the `addons/whereisnm/` folder to your Windower directory
 3. Load the addon using `//lua load whereisnm` or add it to your startup script
 
@@ -171,7 +171,7 @@ addons/whereisnm/
 
 ## Support
 
-- Submit issues on the [GitHub Issues](../../issues) page
+- Submit issues on the [GitHub Issues](https://github.com/Mandracord/whereisnm-addon/issues) page
 - Visit [whereisnm.com](https://whereisnm.com) for more information
 - Check the [documentation](https://whereisnm.com/documentation) for detailed guides
 
