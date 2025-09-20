@@ -30,12 +30,17 @@ jobs:
         echo "Found version: $VERSION"
 
     - name: Check if tag already exists
-      id: check_tag
+      id: tag_check
       run: |
-        if git rev-parse "v${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
-          echo "Tag v${{ steps.version.outputs.version }} already exists"
-          exit 1
+        VERSION="${{ steps.version.outputs.version }}"
+        if git rev-parse "v$VERSION" >/dev/null 2>&1; then
+          echo "Tag v$VERSION already exists, will skip tag creation"
+          echo "tag_exists=true" >> $GITHUB_OUTPUT
+        else
+          echo "Tag v$VERSION does not exist, will create new tag"
+          echo "tag_exists=false" >> $GITHUB_OUTPUT
         fi
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
 
     - name: Create addon directory structure
       run: |
@@ -47,30 +52,40 @@ jobs:
 
     - name: Create zip file
       run: |
-        zip -r whereisnm-v${{ steps.version.outputs.version }}.zip addons/
+        zip -r whereisnm-v${{ steps.tag_check.outputs.version }}.zip addons/
 
     - name: Create Release
       id: create_release
+      if: steps.tag_check.outputs.tag_exists == 'false'
       uses: actions/create-release@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        tag_name: v${{ steps.version.outputs.version }}
-        release_name: WhereIsNM v${{ steps.version.outputs.version }}
+        tag_name: v${{ steps.tag_check.outputs.version }}
+        release_name: WhereIsNM v${{ steps.tag_check.outputs.version }}
         body: |
-          Release v${{ steps.version.outputs.version }}
+          Release v${{ steps.tag_check.outputs.version }}
           
           Changes:
           ${{ github.event.head_commit.message }}
         draft: false
         prerelease: false
 
+    - name: Get existing release (if tag exists)
+      id: get_release
+      if: steps.tag_check.outputs.tag_exists == 'true'
+      run: |
+        UPLOAD_URL=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+          "https://api.github.com/repos/${{ github.repository }}/releases/tags/v${{ steps.tag_check.outputs.version }}" \
+          | jq -r '.upload_url')
+        echo "upload_url=$UPLOAD_URL" >> $GITHUB_OUTPUT
+
     - name: Upload Release Asset
       uses: actions/upload-release-asset@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./whereisnm-v${{ steps.version.outputs.version }}.zip
-        asset_name: whereisnm-v${{ steps.version.outputs.version }}.zip
+        upload_url: ${{ steps.tag_check.outputs.tag_exists == 'true' && steps.get_release.outputs.upload_url || steps.create_release.outputs.upload_url }}
+        asset_path: ./whereisnm-v${{ steps.tag_check.outputs.version }}.zip
+        asset_name: whereisnm-v${{ steps.tag_check.outputs.version }}.zip
         asset_content_type: application/zip
