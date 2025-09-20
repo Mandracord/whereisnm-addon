@@ -1,6 +1,6 @@
 _addon.name = 'WhereIsNM'
 _addon.author = 'Mandracord Team'
-_addon.version = '0.0.3'
+_addon.version = '0.0.4'
 _addon.commands = {'nm','whereisnm'}
 
 require('luau')
@@ -17,6 +17,7 @@ Changelog
 v0.0.1 : First release
 v0.0.2 : Minor updates
 v0.0.3 : Added TOD reporting
+v0.0.4 : Added version checking
 
 ]]
 

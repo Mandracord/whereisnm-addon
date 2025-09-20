@@ -226,6 +226,9 @@ end
 
 function parse_version_from_response(response)
     local version = response:match('"version":"([^"]*)"')
+    if version and version:sub(1,1) == "v" then
+        version = version:sub(2) 
+    end
     return version
 end
 
