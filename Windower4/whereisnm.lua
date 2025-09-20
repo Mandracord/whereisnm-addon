@@ -43,18 +43,7 @@ local auto_refresh_enabled = false
 -- DO NOT EDIT BELOW
 -------------------------------------------------------------------------
 
-function check_version()
-    local latest_version = api.check_addon_version()
-    
-    if latest_version and latest_version ~= _addon.version then
-        windower.add_to_chat(123, string.format('[Where Is NM] You are running an outdated version (%s). Please upgrade to %s', 
-            _addon.version, latest_version))
-        windower.add_to_chat(123, 'Download: https://www.whereisnm.com/addon')
-    end
-end
-
 windower.register_event('load','login',function ()
-    check_version()
     if windower.ffxi.get_info().logged_in then
         windower.add_to_chat(123, string.format('[%s] Thank you for using WhereIsNM! Use //nm to get the latest update.', _addon.name))
     end

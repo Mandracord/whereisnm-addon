@@ -144,49 +144,39 @@ function M.get_latest_reports(server_id)
     end
 end
 
-function M.check_addon_version()
-    local url = 'https://api.github.com/repos/Mandracord/whereisnm-addon/releases/latest'
-    local success, response = pcall(function()
-        return windower.http_get(url)
-    end)
-    
-    if success and response then
-        local data = json.decode(response)
-        if data and data.tag_name then
-            return data.tag_name:gsub('v', '')
-        end
-    end
-    
-    return nil
-end
-
 function format_reports_display(reports, server_name)
     local output = "Recent spawns:\n"
     local nm_reports = {}
     local question_reports = {}
-    
-    for report_block in reports:gmatch('{"id":%d+.-"spawnTypeDisplay":"[^"]+"}') do
-        local displayName = report_block:match('"displayName":"([^"]+)"')
-        local minutes_ago = report_block:match('"minutes_ago":"([^"]+)"')
-        local position = report_block:match('"position":"([^"]+)"')
-        local spawnType = report_block:match('"spawnTypeDisplay":"([^"]+)"')
-        local enemyDisplay = report_block:match('"enemyDisplay":"([^"]+)"')
-        local time_of_death = report_block:match('"time_of_death":"([^"]+)"')
-        
+
+    for report_block in reports:gmatch('{"id":%d+.-"enemyDisplay":"[^"]*".-}') do
+        local displayName   = report_block:match('"displayName":"([^"]*)"')
+        local minutes_ago   = report_block:match('"minutes_ago":"([^"]*)"')
+        local position      = report_block:match('"position":(null|"[^"]*")')
+        local spawnType     = report_block:match('"spawnTypeDisplay":"([^"]*)"')
+        local enemyDisplay  = report_block:match('"enemyDisplay":"([^"]*)"')
+        local time_of_death = report_block:match('"time_of_death":(null|"[^"]*")')
+
+        if position == "null" then position = nil
+        elseif position then position = position:match('"([^"]+)"') end
+
+        if time_of_death == "null" then time_of_death = nil
+        elseif time_of_death then time_of_death = time_of_death:match('"([^"]+)"') end
+
         if displayName and minutes_ago and spawnType then
             local time_text = format_time_ago(tonumber(minutes_ago))
             local pos_text = position and (" (" .. position .. ")") or ""
             local enemy_text = enemyDisplay and (" - " .. enemyDisplay) or ""
             local status_text = ""
-            
-            if time_of_death and time_of_death ~= "null" then
+
+            if time_of_death then
                 status_text = " (KILLED)"
                 time_text = "Killed " .. time_text
             end
-            
-            local report_line = string.format("%s%s%s%s - %s ago\n", 
+
+            local report_line = string.format("%s%s%s%s - %s ago\n",
                 displayName, enemy_text, status_text, pos_text, time_text)
-            
+
             if spawnType == "NM" then
                 table.insert(nm_reports, report_line)
             else
@@ -194,25 +184,25 @@ function format_reports_display(reports, server_name)
             end
         end
     end
-    
-    -- Display NM reports first
+
     if #nm_reports > 0 then
         output = output .. "Reported NM(s) for " .. server_name .. ":\n"
         for _, report in ipairs(nm_reports) do
             output = output .. report
         end
     end
-    
-    -- Display ??? reports
+
     if #question_reports > 0 then
         output = output .. "Reported ??? for " .. server_name .. ":\n"
         for _, report in ipairs(question_reports) do
             output = output .. report
         end
     end
-    
+
     return output
 end
+
+
 
 -- HTTP POST helper
 function post_request(url, body)
