@@ -46,7 +46,7 @@ end
 function M.submit_report(area, tower, floor, spawn_type, enemy_input, position)
     local player_info = windower.ffxi.get_player()
     local server_info = windower.ffxi.get_info()
-    local position_info = windower.ffxi.get_position()
+    --local position_info = windower.ffxi.get_position()
     
     if not player_info or not server_info then
         log_error("SUBMIT_ERROR", "Cannot get player/server info")
@@ -57,7 +57,7 @@ function M.submit_report(area, tower, floor, spawn_type, enemy_input, position)
     local server_id = server_info.server
     local server_name = res.servers[server_id].en
     local token = generate_token(player_name, server_id)
-    local position = format_position(position_info)
+    --local position = format_position(position_info)
     
     local body = string.format(
         '{"area":"%s","tower":"%s","floor":%d,"server":"%s","spawnType":"%s","token":"%s"',
