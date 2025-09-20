@@ -1,3 +1,3 @@
 # Where Is NM 
 
-https://www.whereisnm.com . -.. s
+https://www.whereisnm.com .

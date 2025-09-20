@@ -29,19 +29,6 @@ jobs:
         echo "version=$VERSION" >> $GITHUB_OUTPUT
         echo "Found version: $VERSION"
 
-    - name: Check if tag already exists
-      id: tag_check
-      run: |
-        VERSION="${{ steps.version.outputs.version }}"
-        if git rev-parse "v$VERSION" >/dev/null 2>&1; then
-          echo "Tag v$VERSION already exists, will skip tag creation"
-          echo "tag_exists=true" >> $GITHUB_OUTPUT
-        else
-          echo "Tag v$VERSION does not exist, will create new tag"
-          echo "tag_exists=false" >> $GITHUB_OUTPUT
-        fi
-        echo "version=$VERSION" >> $GITHUB_OUTPUT
-
     - name: Create addon directory structure
       run: |
         mkdir -p addons/whereisnm
@@ -52,80 +39,26 @@ jobs:
 
     - name: Create zip file
       run: |
-        zip -r whereisnm-v${{ steps.tag_check.outputs.version }}.zip addons/
+        zip -r whereisnm-v${{ steps.version.outputs.version }}.zip addons/
 
-    - name: Create Release
-      id: create_release
-      if: steps.tag_check.outputs.tag_exists == 'false'
-      uses: actions/create-release@v1
+    - name: Create or update release
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: v${{ steps.tag_check.outputs.version }}
-        release_name: WhereIsNM v${{ steps.tag_check.outputs.version }}
-        body: |
-          Release v${{ steps.tag_check.outputs.version }}
-          
-          Changes:
-          ${{ github.event.head_commit.message }}
-        draft: false
-        prerelease: false
-
-    - name: Get existing release (if tag exists)
-      id: get_release
-      if: steps.tag_check.outputs.tag_exists == 'true'
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        RELEASE_DATA=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-          "https://api.github.com/repos/${{ github.repository }}/releases/tags/v${{ steps.tag_check.outputs.version }}")
+        VERSION="${{ steps.version.outputs.version }}"
+        TAG="v$VERSION"
+        ZIP_FILE="whereisnm-v$VERSION.zip"
         
-        UPLOAD_URL=$(echo "$RELEASE_DATA" | jq -r '.upload_url')
-        RELEASE_ID=$(echo "$RELEASE_DATA" | jq -r '.id')
-        
-        if [ "$UPLOAD_URL" = "null" ]; then
-          echo "Failed to get upload URL for existing release"
-          exit 1
-        fi
-        
-        echo "upload_url=$UPLOAD_URL" >> $GITHUB_OUTPUT
-        echo "release_id=$RELEASE_ID" >> $GITHUB_OUTPUT
-
-    - name: Delete existing asset (if exists)
-      if: steps.tag_check.outputs.tag_exists == 'true'
-      run: |
-        ASSET_NAME="whereisnm-v${{ steps.tag_check.outputs.version }}.zip"
-        RELEASE_ID="${{ steps.get_release.outputs.release_id }}"
-        
-        ASSETS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-          "https://api.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID/assets")
-        
-        ASSET_ID=$(echo "$ASSETS" | jq -r --arg name "$ASSET_NAME" '.[] | select(.name == $name) | .id')
-        
-        if [ "$ASSET_ID" != "null" ] && [ -n "$ASSET_ID" ]; then
-          echo "Deleting existing asset with ID: $ASSET_ID"
-          curl -X DELETE -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/${{ github.repository }}/releases/assets/$ASSET_ID"
+        if gh release view "$TAG" >/dev/null 2>&1; then
+          echo "Release $TAG exists, uploading asset..."
+          gh release delete-asset "$TAG" "$ZIP_FILE" --yes || true
+          gh release upload "$TAG" "$ZIP_FILE"
         else
-          echo "No existing asset found with name: $ASSET_NAME"
+          echo "Creating new release $TAG..."
+          RELEASE_NOTES="Release v$VERSION
+
+        Changes:
+        ${{ github.event.head_commit.message }}"
+          
+          gh release create "$TAG" "$ZIP_FILE" --title "WhereIsNM v$VERSION" --notes "$RELEASE_NOTES"
         fi
-
-    - name: Upload Release Asset (New Release)
-      if: steps.tag_check.outputs.tag_exists == 'false'
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./whereisnm-v${{ steps.tag_check.outputs.version }}.zip
-        asset_name: whereisnm-v${{ steps.tag_check.outputs.version }}.zip
-        asset_content_type: application/zip
-
-    - name: Upload Release Asset (Existing Release)
-      if: steps.tag_check.outputs.tag_exists == 'true'
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.get_release.outputs.upload_url }}
-        asset_path: ./whereisnm-v${{ steps.tag_check.outputs.version }}.zip
-        asset_name: whereisnm-v${{ steps.tag_check.outputs.version }}.zip
-        asset_content_type: application/zip
