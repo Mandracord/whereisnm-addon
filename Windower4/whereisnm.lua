@@ -1,6 +1,6 @@
 _addon.name = 'WhereIsNM'
 _addon.author = 'Mandracord Team'
-_addon.version = '0.0.2'
+_addon.version = '0.0.3'
 _addon.commands = {'nm','whereisnm'}
 
 require('luau')
@@ -14,7 +14,9 @@ api = require('api')
 --[[
 Changelog
 
-v0.0.1 : First release, beta testing
+v0.0.1 : First release
+v0.0.2 : Minor updates
+v0.0.3 : Added TOD reporting
 
 ]]
 
@@ -41,18 +43,7 @@ local auto_refresh_enabled = false
 -- DO NOT EDIT BELOW
 -------------------------------------------------------------------------
 
-function check_version()
-    local latest_version = api.check_addon_version()
-    
-    if latest_version and latest_version ~= _addon.version then
-        windower.add_to_chat(123, string.format('[Where Is NM] You are running an outdated version (%s). Please upgrade to %s', 
-            _addon.version, latest_version))
-        windower.add_to_chat(123, 'Download: https://www.whereisnm.com/addon')
-    end
-end
-
 windower.register_event('load','login',function ()
-    check_version()
     if windower.ffxi.get_info().logged_in then
         windower.add_to_chat(123, string.format('[%s] Thank you for using WhereIsNM! Use //nm to get the latest update.', _addon.name))
     end
@@ -110,14 +101,13 @@ function format_box_display(reports_text)
     return table.concat(lines, "\n")
 end
 
-
 windower.register_event('addon command', function(command, ...)
     command = command and command:lower()
     local args = L{...}
     
     if command == 'report' then
         local spawn_type = 'question'
-        local area, tower, floor
+        local area, tower, floor, enemy_input
         local zone_info = windower.ffxi.get_info()
         local zone_name = res.zones[zone_info.zone] and res.zones[zone_info.zone].en or 'Unknown Zone'
 
@@ -128,17 +118,46 @@ windower.register_event('addon command', function(command, ...)
 
         if args[1] and args[1]:lower() == 'nm' then
             spawn_type = 'nm'
-            if args[2] and args[3] and args[4] then
+            if args[2] and args[3] and args[4] and args[5] then
+                enemy_input = args[2]
+                area, tower = parse_zone_args(args[3], args[4])
+                floor = tonumber(args[5])
+                if not floor then
+                    windower.add_to_chat(123, 'Invalid floor number.')
+                    return
+                end
+            else
+                windower.add_to_chat(123, 'Usage: //nm report nm <job/name> <area> <tower> <floor>')
+                return
+            end
+        elseif args[1] and args[1]:lower() == 'tod' then
+            if args[2] and args[3] and args[4] and args[5] then
+                enemy_input = args[2]
+                area, tower = parse_zone_args(args[3], args[4])
+                floor = tonumber(args[5])
+                if not floor then
+                    windower.add_to_chat(123, 'Invalid floor number.')
+                    return
+                end
+            elseif args[2] and args[3] and args[4] then
+                area, tower = parse_zone_args(args[2], args[3])
                 floor = tonumber(args[4])
                 if not floor then
                     windower.add_to_chat(123, 'Invalid floor number.')
                     return
                 end
-                area, tower = parse_zone_args(args[2], args[3], floor)
             else
-                windower.add_to_chat(123, 'Usage: //nm report nm <area> <tower> <floor>')
+                windower.add_to_chat(123, 'Usage: //nm report tod [enemy] <area> <tower> <floor>')
                 return
             end
+            
+            if not area or not tower then
+                windower.add_to_chat(123, 'Invalid area or sector specified.')
+                return
+            end
+            
+            api.submit_tod_report(area, tower, floor, enemy_input)
+            return
         else
             if args[1] and args[2] and args[3] then
                 floor = tonumber(args[3])
@@ -158,7 +177,7 @@ windower.register_event('addon command', function(command, ...)
             return
         end
         
-        api.submit_report(area, tower, floor, spawn_type)
+        api.submit_report(area, tower, floor, spawn_type, enemy_input)
         
     elseif command == 'show' then
         local reports = api.get_latest_reports(windower.ffxi.get_info().server)
@@ -176,7 +195,9 @@ windower.register_event('addon command', function(command, ...)
     elseif command == 'help' then 
         windower.add_to_chat(180,'[WhereIsNM] Command prefix //nm or //whereisnm:')
         windower.add_to_chat(180,'Each report has some data requirements: <zone> <tower/sector> <floor>')
-        windower.add_to_chat(180,'e.g //nm report t central 2 (Temenos central floor 2)')
+        windower.add_to_chat(180,'For ??? spawns: //nm report t central 2 (Temenos central floor 2)')
+        windower.add_to_chat(180,'For NM spawns: //nm report nm war t central 2 (Warrior NM at Temenos central floor 2)')
+        windower.add_to_chat(180,'For TOD reports: //nm report tod war t central 2 (Kill Warrior NM at location)')
         windower.add_to_chat(180,'It is possible to use both full name or shortcut as t for Temenos, c for central.')
         windower.add_to_chat(180,'See the readme for a full list.')
         windower.add_to_chat(180,'------------------------------------------')
@@ -187,7 +208,7 @@ end)
 
 -- Auto-refresh the display 
 windower.register_event('time change', function(new, old)
-    if auto_refresh_enabled and displaybox:visible() and new % 5 == 0 then
+    if auto_refresh_enabled and displaybox:visible() and new % 60 == 0 then
         local reports = api.get_latest_reports(windower.ffxi.get_info().server)
         if reports ~= last_reports then
             last_reports = reports
