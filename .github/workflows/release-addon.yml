@@ -79,6 +79,7 @@ jobs:
           "https://api.github.com/repos/${{ github.repository }}/releases/tags/v${{ steps.tag_check.outputs.version }}")
         
         UPLOAD_URL=$(echo "$RELEASE_DATA" | jq -r '.upload_url')
+        RELEASE_ID=$(echo "$RELEASE_DATA" | jq -r '.id')
         
         if [ "$UPLOAD_URL" = "null" ]; then
           echo "Failed to get upload URL for existing release"
@@ -86,6 +87,26 @@ jobs:
         fi
         
         echo "upload_url=$UPLOAD_URL" >> $GITHUB_OUTPUT
+        echo "release_id=$RELEASE_ID" >> $GITHUB_OUTPUT
+
+    - name: Delete existing asset (if exists)
+      if: steps.tag_check.outputs.tag_exists == 'true'
+      run: |
+        ASSET_NAME="whereisnm-v${{ steps.tag_check.outputs.version }}.zip"
+        RELEASE_ID="${{ steps.get_release.outputs.release_id }}"
+        
+        ASSETS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+          "https://api.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID/assets")
+        
+        ASSET_ID=$(echo "$ASSETS" | jq -r --arg name "$ASSET_NAME" '.[] | select(.name == $name) | .id')
+        
+        if [ "$ASSET_ID" != "null" ] && [ -n "$ASSET_ID" ]; then
+          echo "Deleting existing asset with ID: $ASSET_ID"
+          curl -X DELETE -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/assets/$ASSET_ID"
+        else
+          echo "No existing asset found with name: $ASSET_NAME"
+        fi
 
     - name: Upload Release Asset (New Release)
       if: steps.tag_check.outputs.tag_exists == 'false'
