@@ -16,12 +16,13 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v3
       with:
-        fetch-depth: 2
+        fetch-depth: 0
 
     - name: Get version from commit message
       id: get_version
       run: |
         VERSION=$(echo "${{ github.event.head_commit.message }}" | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+')
+        VERSION=${VERSION#v}  # remove leading 'v' if present
         if [ -z "$VERSION" ]; then
           echo "No version found in commit message. Using default 0.0.0"
           VERSION="0.0.0"
@@ -36,7 +37,7 @@ jobs:
 
     - name: Create Git tag
       run: |
-        git tag -f "${{ env.version }}" -m "Release ${{ env.version }}"
+        git tag -f "v${{ env.version }}" -m "Release v${{ env.version }}"
         git push origin --tags --force
 
     # --- Ashita ---
@@ -47,7 +48,6 @@ jobs:
           echo "changed=true" >> $GITHUB_OUTPUT
         else
           echo "changed=false" >> $GITHUB_OUTPUT
-        fi
 
     - name: Build Ashita Addon ZIP
       if: steps.ashita_changed.outputs.changed == 'true'
@@ -64,7 +64,7 @@ jobs:
       if: steps.build_ashita.outputs.zip_exists == 'true'
       uses: softprops/action-gh-release@v1
       with:
-        tag_name: "${{ env.version }}"
+        tag_name: "v${{ env.version }}"
         name: "Ashita Addon Release v${{ env.version }}"
         body: "Ashita addon release v${{ env.version }}"
         draft: false
@@ -88,7 +88,6 @@ jobs:
           echo "changed=true" >> $GITHUB_OUTPUT
         else
           echo "changed=false" >> $GITHUB_OUTPUT
-        fi
 
     - name: Build Windower Addon ZIP
       if: steps.windower_changed.outputs.changed == 'true'
@@ -105,7 +104,7 @@ jobs:
       if: steps.build_windower.outputs.zip_exists == 'true'
       uses: softprops/action-gh-release@v1
       with:
-        tag_name: "${{ env.version }}"
+        tag_name: "v${{ env.version }}"
         name: "Windower Addon Release v${{ env.version }}"
         body: "Windower addon release v${{ env.version }}"
         draft: false
