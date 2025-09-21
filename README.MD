@@ -1,3 +1,8 @@
-󰄨 ![Downloads](https://img.shields.io/github/downloads/Mandracord/whereisnm-addon/total)
+![Downloads](https://img.shields.io/github/downloads/Mandracord/whereisnm-addon/total)
+![License](https://img.shields.io/github/license/Mandracord/whereisnm-addon)
+![Release](https://img.shields.io/github/v/release/Mandracord/whereisnm-addon)
+![LastCommit](https://img.shields.io/github/last-commit/Mandracord/whereisnm-addon)
 
- [Windower4 Addon](https://github.com/Mandracord/whereisnm-addon/tree/main/Windower4)
+## Links
+
+[Windower4 Addon](https://github.com/Mandracord/whereisnm-addon/tree/main/Windower4)
