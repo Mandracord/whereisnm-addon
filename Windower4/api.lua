@@ -42,6 +42,23 @@ local function format_position(pos)
     return tostring(pos):gsub("^%((.+)%)$", "%1")
 end
 
+-- target placeholder
+local function expand_target_placeholder(enemy_input)
+    if not enemy_input then return nil end
+    
+    if enemy_input == "<t>" then
+        local target = windower.ffxi.get_mob_by_target('t')
+        if target and target.name then
+            return target.name
+        else
+            windower.add_to_chat(123, 'No target selected for <t> placeholder.')
+            return nil
+        end
+    end
+    
+    return enemy_input
+end
+
 -- Submit NM/??? report
 function M.submit_report(area, tower, floor, spawn_type, enemy_input, position)
     local player_info = windower.ffxi.get_player()
@@ -50,6 +67,12 @@ function M.submit_report(area, tower, floor, spawn_type, enemy_input, position)
     
     if not player_info or not server_info then
         log_error("SUBMIT_ERROR", "Cannot get player/server info")
+        return false
+    end
+    
+    -- <t> placeholder before building request body
+    local expanded_enemy = expand_target_placeholder(enemy_input)
+    if enemy_input == "<t>" and not expanded_enemy then
         return false
     end
     
@@ -64,8 +87,8 @@ function M.submit_report(area, tower, floor, spawn_type, enemy_input, position)
         area, tower, floor, server_name, spawn_type, token
     )
     
-    if enemy_input then
-        body = body .. ',"enemyInput":"' .. enemy_input .. '"'
+    if expanded_enemy then
+        body = body .. ',"enemyInput":"' .. expanded_enemy .. '"'
     end
     
     if position then
@@ -93,6 +116,12 @@ function M.submit_tod_report(area, tower, floor, enemy_input)
         return false
     end
     
+    -- Expand <t> for TOD reports
+    local expanded_enemy = expand_target_placeholder(enemy_input)
+    if enemy_input == "<t>" and not expanded_enemy then
+        return false
+    end
+    
     local player_name = player_info.name
     local server_id = server_info.server
     local server_name = res.servers[server_id].en
@@ -103,8 +132,8 @@ function M.submit_tod_report(area, tower, floor, enemy_input)
         area, tower, floor, server_name, token
     )
     
-    if enemy_input then
-        body = body .. ',"enemyInput":"' .. enemy_input .. '"}'
+    if expanded_enemy then
+        body = body .. ',"enemyInput":"' .. expanded_enemy .. '"}'
     else
         body = body .. '}'
     end
@@ -145,37 +174,39 @@ function M.get_latest_reports(server_id)
 end
 
 function format_reports_display(reports, server_name)
-    local output = "Recent spawns:\n"
+    local output = "\n"
     local nm_reports = {}
     local question_reports = {}
 
-    for report_block in reports:gmatch('{"id":%d+.-"enemyDisplay":"[^"]*".-}') do
-        local displayName   = report_block:match('"displayName":"([^"]*)"')
-        local minutes_ago   = report_block:match('"minutes_ago":"([^"]*)"')
-        local position      = report_block:match('"position":(null|"[^"]*")')
-        local spawnType     = report_block:match('"spawnTypeDisplay":"([^"]*)"')
-        local enemyDisplay  = report_block:match('"enemyDisplay":"([^"]*)"')
-        local time_of_death = report_block:match('"time_of_death":(null|"[^"]*")')
+    local reports_array = reports:match('"reports":%{"temenos":%[(.-)%]%}')
+    if not reports_array then
+        return "Could not parse reports"
+    end
 
-        if position == "null" then position = nil
-        elseif position then position = position:match('"([^"]+)"') end
+    local report_strings = {}
+    for report in reports_array:gmatch('{[^}]*}') do
+        table.insert(report_strings, report)
+    end
 
-        if time_of_death == "null" then time_of_death = nil
-        elseif time_of_death then time_of_death = time_of_death:match('"([^"]+)"') end
-
+    for _, report_str in ipairs(report_strings) do
+        local displayName = report_str:match('"displayName":"([^"]*)"')
+        local minutes_ago = report_str:match('"minutes_ago":"([^"]*)"')
+        local spawnType = report_str:match('"spawnTypeDisplay":"([^"]*)"')
+        local enemyDisplay = report_str:match('"enemyDisplay":"([^"]*)"')
+        local time_of_death = report_str:match('"time_of_death":"([^"]*)"')
+        
         if displayName and minutes_ago and spawnType then
             local time_text = format_time_ago(tonumber(minutes_ago))
-            local pos_text = position and (" (" .. position .. ")") or ""
             local enemy_text = enemyDisplay and (" - " .. enemyDisplay) or ""
             local status_text = ""
 
             if time_of_death then
-                status_text = " (KILLED)"
+                status_text = ""
                 time_text = "Killed " .. time_text
             end
 
-            local report_line = string.format("%s%s%s%s - %s ago\n",
-                displayName, enemy_text, status_text, pos_text, time_text)
+            local report_line = string.format("%s%s%s - %s ago\n",
+                displayName, enemy_text, status_text, time_text)
 
             if spawnType == "NM" then
                 table.insert(nm_reports, report_line)
@@ -231,8 +262,6 @@ function parse_version_from_response(response)
     end
     return version
 end
-
-
 
 -- HTTP POST helper
 function post_request(url, body)
