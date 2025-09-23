@@ -32,6 +32,12 @@ local function log_error(error_type, details)
     log_file:append(log_entry)
 end
 
+-- Format location name for display (capitalize first letter)
+local function format_location_name(name)
+    if not name or name == "" then return name end
+    return name:sub(1,1):upper() .. name:sub(2)
+end
+
 -- Generate token from player name and server ID
 local function generate_token(player_name, server_id)
     local input = string.lower(player_name) .. "_" .. tostring(server_id)
@@ -101,7 +107,11 @@ function M.submit_report(area, tower, floor, spawn_type, enemy_input, position)
     local success = post_request(reports_endpoint, body)
     
     if success then
-        windower.add_to_chat(123, "Report submitted.")
+        local formatted_area = format_location_name(area)
+        local formatted_tower = format_location_name(tower)
+        local enemy_text = expanded_enemy and (" (" .. expanded_enemy .. ")") or ""
+        local spawn_text = spawn_type == "nm" and "NM" or "???"
+        windower.add_to_chat(123, string.format('[%s] reported: %s, %s F%d (%s)', spawn_text, formatted_area, formatted_tower, floor, enemy_text))
         return true
     else
         return false
@@ -143,7 +153,10 @@ function M.submit_tod_report(area, tower, floor, enemy_input)
     local success = put_request(tod_endpoint, body)
     
     if success then
-        windower.add_to_chat(123, "TOD submitted.")
+        local formatted_area = format_location_name(area)
+        local formatted_tower = format_location_name(tower)
+        local enemy_text = expanded_enemy and (" (" .. expanded_enemy .. ")") or ""
+        windower.add_to_chat(123, string.format('TOD reported: %s %s F%d%s', formatted_area, formatted_tower, floor, enemy_text))
         return true
     else
         return false
@@ -173,7 +186,9 @@ function M.delete_report(area, tower, floor)
     local success = delete_request(delete_endpoint, body)
     
     if success then
-        windower.add_to_chat(123, string.format('Report deleted: %s %s F%d', area, tower, floor))
+        local formatted_area = format_location_name(area)
+        local formatted_tower = format_location_name(tower)
+        windower.add_to_chat(123, string.format('Report deleted: %s, %s F%d', formatted_area, formatted_tower, floor))
         return true
     else
         windower.add_to_chat(123, 'Failed to delete report or no matching report found')
