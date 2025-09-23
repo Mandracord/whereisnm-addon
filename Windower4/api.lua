@@ -10,6 +10,7 @@ files = require('files')
 local base_url = "https://whereisnm.com"
 local reports_endpoint = base_url .. "/api/v1/reports"
 local tod_endpoint = base_url .. "/api/v1/reports/tod"
+local delete_endpoint = base_url .. "/api/v1/reports/user"
 
 local M = {}
 
@@ -42,7 +43,7 @@ local function format_position(pos)
     return tostring(pos):gsub("^%((.+)%)$", "%1")
 end
 
--- target placeholder
+-- target
 local function expand_target_placeholder(enemy_input)
     if not enemy_input then return nil end
     
@@ -100,6 +101,7 @@ function M.submit_report(area, tower, floor, spawn_type, enemy_input, position)
     local success = post_request(reports_endpoint, body)
     
     if success then
+        windower.add_to_chat(123, "Report submitted.")
         return true
     else
         return false
@@ -141,8 +143,40 @@ function M.submit_tod_report(area, tower, floor, enemy_input)
     local success = put_request(tod_endpoint, body)
     
     if success then
+        windower.add_to_chat(123, "TOD submitted.")
         return true
     else
+        return false
+    end
+end
+
+-- Delete user's own report
+function M.delete_report(area, tower, floor)
+    local player_info = windower.ffxi.get_player()
+    local server_info = windower.ffxi.get_info()
+    
+    if not player_info or not server_info then
+        log_error("DELETE_ERROR", "Cannot get player/server info")
+        return false
+    end
+    
+    local player_name = player_info.name
+    local server_id = server_info.server
+    local server_name = res.servers[server_id].en
+    local token = generate_token(player_name, server_id)
+    
+    local body = string.format(
+        '{"area":"%s","tower":"%s","floor":%d,"server":"%s","token":"%s"}',
+        area, tower, floor, server_name, token
+    )
+    
+    local success = delete_request(delete_endpoint, body)
+    
+    if success then
+        windower.add_to_chat(123, string.format('Report deleted: %s %s F%d', area, tower, floor))
+        return true
+    else
+        windower.add_to_chat(123, 'Failed to delete report or no matching report found')
         return false
     end
 end
@@ -319,6 +353,36 @@ function put_request(url, body)
     else
         local error_details = "HTTP " .. (status_code or "unknown") .. ": " .. (response_text or "no response")
         log_error("HTTP_PUT_ERROR", string.format("PUT to %s failed - %s", url, error_details))
+        return false
+    end
+end
+
+-- HTTP DELETE helper for delete reports
+function delete_request(url, body)
+    local response_body = {}
+    
+    local headers = {
+        ["User-Agent"] = "WhereIsNM/" .. _addon.version,
+        ["Content-Type"] = "application/json",
+        ["Content-Length"] = tostring(#body),
+        ["X-Client-Type"] = "WhereIsNM-Addon"
+    }
+    
+    local result, status_code = https.request{
+        url = url,
+        method = "DELETE", 
+        headers = headers,
+        source = ltn12.source.string(body),
+        sink = ltn12.sink.table(response_body)
+    }
+    
+    local response_text = table.concat(response_body)
+    
+    if status_code == 200 or status_code == 201 then
+        return true
+    else
+        local error_details = "HTTP " .. (status_code or "unknown") .. ": " .. (response_text or "no response")
+        log_error("HTTP_DELETE_ERROR", string.format("DELETE to %s failed - %s", url, error_details))
         return false
     end
 end

@@ -1,6 +1,6 @@
 _addon.name = 'WhereIsNM'
 _addon.author = 'Mandracord Team'
-_addon.version = '0.0.5'
+_addon.version = '0.0.6'
 _addon.commands = {'nm','whereisnm'}
 
 require('luau')
@@ -19,6 +19,7 @@ v0.0.2 : Minor updates
 v0.0.3 : Added TOD reporting
 v0.0.4 : Added version checking
 v0.0.5 : Added <t> target support, fixed //nm command to clearly display if a NM was killed XX:XX ago.
+v0.0.6 : Added delete command for own reports (if you need to correct a incorrect report).
 
 ]]
 
@@ -158,7 +159,7 @@ windower.register_event('addon command', function(command, ...)
                     return
                 end
             else
-                windower.add_to_chat(123, 'Usage: //nm report tod [enemy] <area> <tower> <floor>')
+                windower.add_to_chat(123, 'Usage: //nm report tod <job/name> <area> <tower> <floor>')
                 return
             end
             
@@ -190,6 +191,28 @@ windower.register_event('addon command', function(command, ...)
         
         api.submit_report(area, tower, floor, spawn_type, enemy_input)
         
+    elseif command == 'delete' then
+        if args[1] and args[2] and args[3] then
+            local area, tower = parse_zone_args(args[1], args[2])
+            local floor = tonumber(args[3])
+            
+            if not floor then
+                windower.add_to_chat(123, 'Invalid floor number.')
+                return
+            end
+            
+            if not area or not tower then
+                windower.add_to_chat(123, 'Invalid area or sector specified.')
+                return
+            end
+            
+            api.delete_report(area, tower, floor)
+        else
+            windower.add_to_chat(123, 'Usage: //nm delete <area> <tower> <floor>')
+            windower.add_to_chat(123, 'Example: //nm delete t central 5')
+            return
+        end
+        
     elseif command == 'show' then
         local reports = api.get_latest_reports(windower.ffxi.get_info().server)
         last_reports = reports
@@ -209,8 +232,9 @@ windower.register_event('addon command', function(command, ...)
         windower.add_to_chat(180,'For ??? spawns: //nm report t central 2 (Temenos central floor 2)')
         windower.add_to_chat(180,'For NM spawns: //nm report nm war t central 2 (Warrior NM at Temenos central floor 2)')
         windower.add_to_chat(180,'For TOD reports: //nm report tod war t central 2 (Kill Warrior NM at location)')
+        windower.add_to_chat(180,'To delete your own reports: //nm delete t central 2 (Delete your report at location)')
         windower.add_to_chat(180,'It is possible to use both full name or shortcut as t for Temenos, c for central.')
-        windower.add_to_chat(180,'See the readme for a full list.')
+        windower.add_to_chat(180,'See the readme or www.whereisnm.com for a full list.')
         windower.add_to_chat(180,'------------------------------------------')
     else
         windower.add_to_chat(123, api.get_latest_reports(windower.ffxi.get_info().server))
