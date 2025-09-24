@@ -1,19 +1,11 @@
 _addon.name = 'WhereIsNM'
 _addon.author = 'Mandracord Team'
-_addon.version = '0.0.6'
+_addon.version = '0.0.7'
 _addon.commands = {'nm','whereisnm'}
 
-require('luau')
-require('strings')
-require('logger')
-texts = require('texts')
-res = require('resources')
-config = require('config')
-api = require('api')
-
 --[[
-Changelog
-
+---------------------------------------------------------------------------
+RELEASE NOTES
 v0.0.1 : First release
 v0.0.2 : Minor updates
 v0.0.3 : Added TOD reporting
@@ -21,11 +13,18 @@ v0.0.4 : Added version checking
 v0.0.5 : Added <t> target support, fixed //nm command to clearly display if a NM was killed XX:XX ago.
 v0.0.6 : Added delete command for own reports (if you need to correct a incorrect report).
 
+v0.0.7 : Full refactor of code and libraries:
+You can report NM and ??? automatic or with a simplified command //nm report | //nm tod. 
+Automatic report toggle with //nm send
+---------------------------------------------------------------------------
 ]]
 
--------------------------------------------------------------------------
--- Default Settings
--------------------------------------------------------------------------
+require('luau')
+texts = require('texts')
+res = require('resources')
+config = require('config')
+api = require('api')
+util_data = require('utils')
 
 defaults = {}
 defaults.text = T{}
@@ -39,215 +38,122 @@ defaults.show_displaybox = true
 
 settings = config.load(defaults)
 local displaybox = texts.new('${nm_info}', settings.text, settings)
-local last_reports = ""
 local auto_refresh_enabled = false
-
--------------------------------------------------------------------------
--- DO NOT EDIT BELOW
--------------------------------------------------------------------------
-
-function check_addon()
-    local result = api.check_version(_addon.version)
-    if result then
-        windower.add_to_chat(123, string.format('[%s] %s', _addon.name, result))
-    end
-end
-
+local current_floor = nil
+local zoning_in_progress = false
+local auto_send = false
 
 windower.register_event('load','login',function ()
-    check_addon()
     if windower.ffxi.get_info().logged_in then
-        windower.add_to_chat(123, string.format('[%s] Thank you for using WhereIsNM! Use //nm to get the latest update.', _addon.name))
+        windower.add_to_chat(123, '[WhereIsNM] Loaded. Use //nm help for commands.')
     end
 end)
 
-function parse_zone_args(area_arg, tower_arg, floor)
-    local area_map = {
-        t = 'temenos', te = 'temenos', tem = 'temenos', temenos = 'temenos',
-        a = 'apollyon', ap = 'apollyon', apo = 'apollyon', apollyon = 'apollyon'
-    }
-    
-    local tower_map = {
-        n = 'northern', north = 'northern', northern = 'northern',
-        s = 'southern', south = 'southern', southern = 'southern', 
-        e = 'eastern', east = 'eastern', eastern = 'eastern',
-        w = 'western', west = 'western', western = 'western',
-        c = 'central', cent = 'central', central = 'central',
-        nw = 'nw', ne = 'ne', sw = 'sw', se = 'se'
-    }
-    
-    local area = area_map[area_arg and area_arg:lower()]
-    local tower = tower_map[tower_arg and tower_arg:lower()]
-    
-    return area, tower, floor
-end
+---------------------------------------------------------------------------
+-- DO NOT EDIT BELOW THIS LINE
+---------------------------------------------------------------------------
 
-function format_box_display(reports_text)
-    if not reports_text or reports_text == "Unable to fetch latest reports" then
-        return "No recent data"
+function check_current_floor()
+    local zone_info = windower.ffxi.get_info()
+    if not zone_info or (zone_info.zone ~= 37 and zone_info.zone ~= 38) then
+        current_floor = nil
+        return
     end
     
-    local lines = {}
-    local current_type = ""
+    local player_info = windower.ffxi.get_player()
+    if not player_info then return end
     
-    for line in reports_text:gmatch("[^\r\n]+") do
-        line = line:gsub("^%s+", ""):gsub("%s+$", "")
-        
-        if line:match("Reported NM") then
-            current_type = "[NM] "
-        elseif line:match("Reported %?%?%?") then
-            current_type = "[???] "
-        elseif line ~= "" and not line:match("Recent spawns") and not line:match("Reported") then
-            if current_type ~= "" then
-                table.insert(lines, current_type .. line)
-            else
-                table.insert(lines, line)
+    local player_mob = windower.ffxi.get_mob_by_index(player_info.index)
+    if not player_mob then return end
+    
+    local floor_name = util_data.identify_floor(player_mob.x, player_mob.y, player_mob.z, zone_info.zone)
+    
+    if floor_name ~= current_floor then
+        current_floor = floor_name
+        if floor_name and auto_send then
+            windower.add_to_chat(123, string.format('[WhereIsNM] Entered %s', floor_name))
+        end
+    end
+end
+
+function findTarget_and_sendReport()
+    if not current_floor then return end
+    
+    local zone_info = windower.ffxi.get_info()
+    local zone_id = zone_info.zone
+    
+    if zone_id ~= 37 and zone_id ~= 38 then return end
+    
+    local mobs = windower.ffxi.get_mob_array()
+    
+    for i, mob in pairs(mobs) do
+        if mob.valid_target then
+            if util_data.limbus_nms[zone_id]:contains(mob.name) then
+                local area, tower, floor = util_data.parse_floor_to_api_format(current_floor, zone_id)
+                if area and tower and floor then
+                    api.submit_report(area, tower, floor, 'nm', mob.name, mob.id)
+                end
+            elseif mob.spawn_type == 2 then
+                local area, tower, floor = util_data.parse_floor_to_api_format(current_floor, zone_id)
+                if area and tower and floor then
+                    api.submit_report(area, tower, floor, 'question', nil, mob.id)
+                end
             end
         end
     end
-    
-    if #lines == 0 then
-        return "No recent data"
-    end
-    
-    return table.concat(lines, "\n")
 end
+
+windower.register_event('outgoing chunk', function(id, data)
+    if id == 0x05C then
+        zoning_in_progress = true
+    elseif id == 0x05B and zoning_in_progress then
+        zoning_in_progress = false
+        coroutine.schedule(function()
+            check_current_floor()
+        end, 2)
+    end
+end)
 
 windower.register_event('addon command', function(command, ...)
     command = command and command:lower()
     local args = L{...}
     
-    if command == 'report' then
-        local spawn_type = 'question'
-        local area, tower, floor, enemy_input
-        local zone_info = windower.ffxi.get_info()
-        local zone_name = res.zones[zone_info.zone] and res.zones[zone_info.zone].en or 'Unknown Zone'
-
-        if not (zone_name:find("Temenos") or zone_name:find("Apollyon")) then
-            windower.add_to_chat(123, 'You must be in Limbus (Temenos or Apollyon) to report NM or ???.')
-            return
-        end
-
-        if args[1] and args[1]:lower() == 'nm' then
-            spawn_type = 'nm'
-            if args[2] and args[3] and args[4] and args[5] then
-                enemy_input = args[2]
-                area, tower = parse_zone_args(args[3], args[4])
-                floor = tonumber(args[5])
-                if not floor then
-                    windower.add_to_chat(123, 'Invalid floor number.')
-                    return
-                end
-            else
-                windower.add_to_chat(123, 'Usage: //nm report nm <job/name> <area> <tower> <floor>')
-                return
-            end
-        elseif args[1] and args[1]:lower() == 'tod' then
-            if args[2] and args[3] and args[4] and args[5] then
-                enemy_input = args[2]
-                area, tower = parse_zone_args(args[3], args[4])
-                floor = tonumber(args[5])
-                if not floor then
-                    windower.add_to_chat(123, 'Invalid floor number.')
-                    return
-                end
-            elseif args[2] and args[3] and args[4] then
-                area, tower = parse_zone_args(args[2], args[3])
-                floor = tonumber(args[4])
-                if not floor then
-                    windower.add_to_chat(123, 'Invalid floor number.')
-                    return
-                end
-            else
-                windower.add_to_chat(123, 'Usage: //nm report tod <job/name> <area> <tower> <floor>')
-                return
-            end
-            
-            if not area or not tower then
-                windower.add_to_chat(123, 'Invalid area or sector specified.')
-                return
-            end
-            
-            api.submit_tod_report(area, tower, floor, enemy_input)
-            return
+    if command == 'send' then
+        auto_send = not auto_send
+        local status = auto_send and 'enabled' or 'disabled'
+        windower.add_to_chat(123, '[WhereIsNM] sending data ' .. status)
+        return
+    elseif command == 'report' then
+        findTarget_and_sendReport()
+        return
+    elseif command == 'hud' then
+        if displaybox:visible() then
+            displaybox:hide()
+            auto_refresh_enabled = false
+            windower.add_to_chat(123, '[WhereIsNM] HUD hidden')
         else
-            if args[1] and args[2] and args[3] then
-                floor = tonumber(args[3])
-                if not floor then
-                    windower.add_to_chat(123, 'Invalid floor number.')
-                    return
-                end
-                area, tower = parse_zone_args(args[1], args[2], floor)
-            else
-                windower.add_to_chat(123, 'Required data missing. Try again.')
-                return
-            end
-        end
-        
-        if not area or not tower then
-            windower.add_to_chat(123, 'Invalid area or sector specified.')
-            return
-        end
-        
-        api.submit_report(area, tower, floor, spawn_type, enemy_input)
-        
-    elseif command == 'delete' then
-        if args[1] and args[2] and args[3] then
-            local area, tower = parse_zone_args(args[1], args[2])
-            local floor = tonumber(args[3])
-            
-            if not floor then
-                windower.add_to_chat(123, 'Invalid floor number.')
-                return
-            end
-            
-            if not area or not tower then
-                windower.add_to_chat(123, 'Invalid area or sector specified.')
-                return
-            end
-            
-            api.delete_report(area, tower, floor)
-        else
-            windower.add_to_chat(123, 'Usage: //nm delete <area> <tower> <floor>')
-            windower.add_to_chat(123, 'Example: //nm delete t central 5')
-            return
-        end
-        
-    elseif command == 'show' then
-        local reports = api.get_latest_reports(windower.ffxi.get_info().server)
-        last_reports = reports
-        displaybox.nm_info = format_box_display(reports)
-        displaybox:show()
-        auto_refresh_enabled = true
-        windower.add_to_chat(123, 'WhereIsNM Displaybox shown')
-        
-    elseif command == 'hide' then
-        displaybox:hide()
-        auto_refresh_enabled = false
-        windower.add_to_chat(123, 'WhereIsNM Displaybox hidden')
-
-    elseif command == 'help' then 
-        windower.add_to_chat(180,'[WhereIsNM] Command prefix //nm or //whereisnm:')
-        windower.add_to_chat(180,'Each report has some data requirements: <zone> <tower/sector> <floor>')
-        windower.add_to_chat(180,'For ??? spawns: //nm report t central 2 (Temenos central floor 2)')
-        windower.add_to_chat(180,'For NM spawns: //nm report nm war t central 2 (Warrior NM at Temenos central floor 2)')
-        windower.add_to_chat(180,'For TOD reports: //nm report tod war t central 2 (Kill Warrior NM at location)')
-        windower.add_to_chat(180,'To delete your own reports: //nm delete t central 2 (Delete your report at location)')
-        windower.add_to_chat(180,'It is possible to use both full name or shortcut as t for Temenos, c for central.')
-        windower.add_to_chat(180,'See the readme or www.whereisnm.com for a full list.')
-        windower.add_to_chat(180,'------------------------------------------')
-    else
-        windower.add_to_chat(123, api.get_latest_reports(windower.ffxi.get_info().server))
-    end
-end)
-
--- Auto-refresh the display 
-windower.register_event('time change', function(new, old)
-    if auto_refresh_enabled and displaybox:visible() and new % 60 == 0 then
-        local reports = api.get_latest_reports(windower.ffxi.get_info().server)
-        if reports ~= last_reports then
-            last_reports = reports
+            local reports = api.get_latest_reports(windower.ffxi.get_info().server)
             displaybox.nm_info = format_box_display(reports)
+            displaybox:show()
+            auto_refresh_enabled = true
+            windower.add_to_chat(123, '[WhereIsNM] HUD visible')
         end
+        return
+    elseif command == 'help' then 
+        windower.add_to_chat(180,'[WhereIsNM] Commands:')
+        windower.add_to_chat(180,'//nm send - Enable/disable sending data')
+        windower.add_to_chat(180,'//nm report - Manual submit a sighting (NM or ???)')
+        windower.add_to_chat(180,'//nm hud - Toggle hud display')
+        return
+    else
+        windower.add_to_chat(123, '[WhereIsNM] Unknown command. Use //nm help')
     end
 end)
+
+function auto_send_loop()
+    if auto_send then
+        findTarget_and_sendReport()
+    end
+end
+
+auto_send_loop:loop(3)

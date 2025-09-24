@@ -10,7 +10,6 @@ files = require('files')
 local base_url = "https://whereisnm.com"
 local reports_endpoint = base_url .. "/api/v1/reports"
 local tod_endpoint = base_url .. "/api/v1/reports/tod"
-local delete_endpoint = base_url .. "/api/v1/reports/user"
 
 local M = {}
 
@@ -32,7 +31,7 @@ local function log_error(error_type, details)
     log_file:append(log_entry)
 end
 
--- Format location name for display (capitalize first letter)
+-- Format location name for display
 local function format_location_name(name)
     if not name or name == "" then return name end
     return name:sub(1,1):upper() .. name:sub(2)
@@ -44,42 +43,13 @@ local function generate_token(player_name, server_id)
     return sha.sha256(input)
 end
 
-local function format_position(pos)
-    if not pos then return nil end
-    return tostring(pos):gsub("^%((.+)%)$", "%1")
-end
-
--- target
-local function expand_target_placeholder(enemy_input)
-    if not enemy_input then return nil end
-    
-    if enemy_input == "<t>" then
-        local target = windower.ffxi.get_mob_by_target('t')
-        if target and target.name then
-            return target.name
-        else
-            windower.add_to_chat(123, 'No target selected for <t> placeholder.')
-            return nil
-        end
-    end
-    
-    return enemy_input
-end
-
 -- Submit NM/??? report
-function M.submit_report(area, tower, floor, spawn_type, enemy_input, position)
+function M.submit_report(area, tower, floor, spawn_type, mob_name, mob_id)
     local player_info = windower.ffxi.get_player()
     local server_info = windower.ffxi.get_info()
-    --local position_info = windower.ffxi.get_position()
     
     if not player_info or not server_info then
         log_error("SUBMIT_ERROR", "Cannot get player/server info")
-        return false
-    end
-    
-    -- <t> placeholder before building request body
-    local expanded_enemy = expand_target_placeholder(enemy_input)
-    if enemy_input == "<t>" and not expanded_enemy then
         return false
     end
     
@@ -87,19 +57,14 @@ function M.submit_report(area, tower, floor, spawn_type, enemy_input, position)
     local server_id = server_info.server
     local server_name = res.servers[server_id].en
     local token = generate_token(player_name, server_id)
-    --local position = format_position(position_info)
     
     local body = string.format(
-        '{"area":"%s","tower":"%s","floor":%d,"server":"%s","spawnType":"%s","token":"%s"',
-        area, tower, floor, server_name, spawn_type, token
+        '{"area":"%s","tower":"%s","floor":%d,"server":"%s","spawnType":"%s","token":"%s","mobId":%d',
+        area, tower, floor, server_name, spawn_type, token, mob_id
     )
     
-    if expanded_enemy then
-        body = body .. ',"enemyInput":"' .. expanded_enemy .. '"'
-    end
-    
-    if position then
-        body = body .. ',"position":"' .. position .. '"}'
+    if mob_name then
+        body = body .. ',"enemyInput":"' .. mob_name .. '"}'
     else
         body = body .. '}'
     end
@@ -109,9 +74,9 @@ function M.submit_report(area, tower, floor, spawn_type, enemy_input, position)
     if success then
         local formatted_area = format_location_name(area)
         local formatted_tower = format_location_name(tower)
-        local enemy_text = expanded_enemy and (" (" .. expanded_enemy .. ")") or ""
+        local enemy_text = mob_name and (" (" .. mob_name .. ")") or ""
         local spawn_text = spawn_type == "nm" and "NM" or "???"
-        windower.add_to_chat(123, string.format('[%s] reported: %s, %s F%d (%s)', spawn_text, formatted_area, formatted_tower, floor, enemy_text))
+        windower.add_to_chat(123, string.format('%s reported: %s, %s F%d (%s)', spawn_text, formatted_area, formatted_tower, floor, enemy_text))
         return true
     else
         return false
@@ -128,12 +93,6 @@ function M.submit_tod_report(area, tower, floor, enemy_input)
         return false
     end
     
-    -- Expand <t> for TOD reports
-    local expanded_enemy = expand_target_placeholder(enemy_input)
-    if enemy_input == "<t>" and not expanded_enemy then
-        return false
-    end
-    
     local player_name = player_info.name
     local server_id = server_info.server
     local server_name = res.servers[server_id].en
@@ -144,8 +103,8 @@ function M.submit_tod_report(area, tower, floor, enemy_input)
         area, tower, floor, server_name, token
     )
     
-    if expanded_enemy then
-        body = body .. ',"enemyInput":"' .. expanded_enemy .. '"}'
+    if enemy_input then
+        body = body .. ',"enemyInput":"' .. enemy_input .. '"}'
     else
         body = body .. '}'
     end
@@ -155,43 +114,10 @@ function M.submit_tod_report(area, tower, floor, enemy_input)
     if success then
         local formatted_area = format_location_name(area)
         local formatted_tower = format_location_name(tower)
-        local enemy_text = expanded_enemy and (" (" .. expanded_enemy .. ")") or ""
-        windower.add_to_chat(123, string.format('TOD reported: %s %s F%d%s', formatted_area, formatted_tower, floor, enemy_text))
+        local enemy_text = enemy_input and (" (" .. enemy_input .. ")") or ""
+        windower.add_to_chat(123, string.format('TOD reported: %s, %s F%d (%s)', formatted_area, formatted_tower, floor, enemy_text))
         return true
     else
-        return false
-    end
-end
-
--- Delete user's own report
-function M.delete_report(area, tower, floor)
-    local player_info = windower.ffxi.get_player()
-    local server_info = windower.ffxi.get_info()
-    
-    if not player_info or not server_info then
-        log_error("DELETE_ERROR", "Cannot get player/server info")
-        return false
-    end
-    
-    local player_name = player_info.name
-    local server_id = server_info.server
-    local server_name = res.servers[server_id].en
-    local token = generate_token(player_name, server_id)
-    
-    local body = string.format(
-        '{"area":"%s","tower":"%s","floor":%d,"server":"%s","token":"%s"}',
-        area, tower, floor, server_name, token
-    )
-    
-    local success = delete_request(delete_endpoint, body)
-    
-    if success then
-        local formatted_area = format_location_name(area)
-        local formatted_tower = format_location_name(tower)
-        windower.add_to_chat(123, string.format('Report deleted: %s, %s F%d', formatted_area, formatted_tower, floor))
-        return true
-    else
-        windower.add_to_chat(123, 'Failed to delete report or no matching report found')
         return false
     end
 end
@@ -247,15 +173,13 @@ function format_reports_display(reports, server_name)
         if displayName and minutes_ago and spawnType then
             local time_text = format_time_ago(tonumber(minutes_ago))
             local enemy_text = enemyDisplay and (" - " .. enemyDisplay) or ""
-            local status_text = ""
-
+            
             if time_of_death then
-                status_text = ""
                 time_text = "Killed " .. time_text
             end
 
-            local report_line = string.format("%s%s%s - %s ago\n",
-                displayName, enemy_text, status_text, time_text)
+            local report_line = string.format("%s%s - %s ago\n",
+                displayName, enemy_text, time_text)
 
             if spawnType == "NM" then
                 table.insert(nm_reports, report_line)
@@ -282,34 +206,14 @@ function format_reports_display(reports, server_name)
     return output
 end
 
-function M.check_version(current_version)
-    local version_url = base_url .. "/version"
-    
-    local success, response = get_request(version_url)
-    
-    if success then
-        local latest_version = parse_version_from_response(response)
-        
-        if latest_version then
-            if current_version ~= latest_version then
-                return string.format("You are running an outdated version! Current: %s, Latest: %s - Download update at: %s", 
-                    current_version, latest_version, base_url)
-            end
-        else
-            log_error("VERSION_PARSE_ERROR", "Could not parse version from response: " .. response)
-            return "Unable to check version"
-        end
+function format_time_ago(minutes)
+    if minutes < 60 then
+        return string.format("%dm", math.floor(minutes))
     else
-        return "Unable to check for updates"
+        local hours = math.floor(minutes / 60)
+        local mins = math.floor(minutes % 60)
+        return string.format("%dh %dm", hours, mins)
     end
-end
-
-function parse_version_from_response(response)
-    local version = response:match('"version":"([^"]*)"')
-    if version and version:sub(1,1) == "v" then
-        version = version:sub(2) 
-    end
-    return version
 end
 
 -- HTTP POST helper
@@ -372,36 +276,6 @@ function put_request(url, body)
     end
 end
 
--- HTTP DELETE helper for delete reports
-function delete_request(url, body)
-    local response_body = {}
-    
-    local headers = {
-        ["User-Agent"] = "WhereIsNM/" .. _addon.version,
-        ["Content-Type"] = "application/json",
-        ["Content-Length"] = tostring(#body),
-        ["X-Client-Type"] = "WhereIsNM-Addon"
-    }
-    
-    local result, status_code = https.request{
-        url = url,
-        method = "DELETE", 
-        headers = headers,
-        source = ltn12.source.string(body),
-        sink = ltn12.sink.table(response_body)
-    }
-    
-    local response_text = table.concat(response_body)
-    
-    if status_code == 200 or status_code == 201 then
-        return true
-    else
-        local error_details = "HTTP " .. (status_code or "unknown") .. ": " .. (response_text or "no response")
-        log_error("HTTP_DELETE_ERROR", string.format("DELETE to %s failed - %s", url, error_details))
-        return false
-    end
-end
-
 function get_request(url, headers)
     local response_body = {}
 
@@ -424,16 +298,6 @@ function get_request(url, headers)
         local error_details = "HTTP " .. (status_code or "unknown") .. ": " .. (response_text or "no response")
         log_error("HTTP_GET_ERROR", string.format("GET to %s failed - %s", url, error_details))
         return false
-    end
-end
-
-function format_time_ago(minutes)
-    if minutes < 60 then
-        return string.format("%dm", math.floor(minutes))
-    else
-        local hours = math.floor(minutes / 60)
-        local mins = math.floor(minutes % 60)
-        return string.format("%dh %dm", hours, mins)
     end
 end
 
