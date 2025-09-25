@@ -12,10 +12,8 @@ v0.0.3 : Added TOD reporting
 v0.0.4 : Added version checking
 v0.0.5 : Added <t> target support, fixed //nm command to clearly display if a NM was killed XX:XX ago.
 v0.0.6 : Added delete command for own reports (if you need to correct a incorrect report).
-
-v0.0.7 : Full refactor of code and libraries:
-You can report NM and ??? automatic or with a simplified command //nm report | //nm tod. 
-Automatic report toggle with //nm send
+v0.0.7 : Added queue system for batch reporting to eliminate gameplay performance impact.
+Removed redundant manual report command.
 ---------------------------------------------------------------------------
 ]]
 
@@ -25,6 +23,7 @@ res = require('resources')
 config = require('config')
 api = require('api')
 util_data = require('utils')
+queue = require('queue')
 
 defaults = {}
 defaults.text = T{}
@@ -91,12 +90,12 @@ function findTarget_and_sendReport()
             if util_data.limbus_nms[zone_id]:contains(mob.name) then
                 local area, tower, floor = util_data.parse_floor_to_api_format(current_floor, zone_id)
                 if area and tower and floor then
-                    api.submit_report(area, tower, floor, 'nm', mob.name, mob.id)
+                    queue.queue_spawn_report(area, tower, floor, 'nm', mob.name, mob.id)
                 end
             elseif mob.spawn_type == 2 then
                 local area, tower, floor = util_data.parse_floor_to_api_format(current_floor, zone_id)
                 if area and tower and floor then
-                    api.submit_report(area, tower, floor, 'question', nil, mob.id)
+                    queue.queue_spawn_report(area, tower, floor, 'question', nil, mob.id)
                 end
             end
         end
@@ -114,17 +113,27 @@ windower.register_event('outgoing chunk', function(id, data)
     end
 end)
 
+-- Send queued reports when leaving Limbus
+windower.register_event('zone change', function(new_id, old_id)
+    if (old_id == 37 or old_id == 38) and (new_id ~= 37 and new_id ~= 38) then
+        queue.load_queue()
+        coroutine.schedule(queue.send_queued_reports, 2)
+    end
+end)
+
 windower.register_event('addon command', function(command, ...)
     command = command and command:lower()
     local args = L{...}
+
+    if not command or command == '' then
+        local reports = api.get_latest_reports(windower.ffxi.get_info().server)
+        windower.add_to_chat(123, format_box_display(reports))
+        return
     
-    if command == 'send' then
+    elseif command == 'send' then
         auto_send = not auto_send
         local status = auto_send and 'enabled' or 'disabled'
-        windower.add_to_chat(123, '[WhereIsNM] sending data ' .. status)
-        return
-    elseif command == 'report' then
-        findTarget_and_sendReport()
+        windower.add_to_chat(123, '[WhereIsNM] Auto-reporting ' .. status)
         return
     elseif command == 'hud' then
         if displaybox:visible() then
@@ -141,9 +150,8 @@ windower.register_event('addon command', function(command, ...)
         return
     elseif command == 'help' then 
         windower.add_to_chat(180,'[WhereIsNM] Commands:')
-        windower.add_to_chat(180,'//nm send - Enable/disable sending data')
-        windower.add_to_chat(180,'//nm report - Manual submit a sighting (NM or ???)')
-        windower.add_to_chat(180,'//nm hud - Toggle hud display')
+        windower.add_to_chat(180,'//nm send - Enable/disable auto-reporting')
+        windower.add_to_chat(180,'//nm hud - Toggle HUD display')
         return
     else
         windower.add_to_chat(123, '[WhereIsNM] Unknown command. Use //nm help')
