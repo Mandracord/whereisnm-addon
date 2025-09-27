@@ -76,15 +76,15 @@ function M.submit_report(area, tower, floor, spawn_type, mob_name, mob_id)
         local formatted_tower = format_location_name(tower)
         local enemy_text = mob_name and (" (" .. mob_name .. ")") or ""
         local spawn_text = spawn_type == "nm" and "NM" or "???"
-        windower.add_to_chat(123, string.format('%s reported: %s, %s F%d (%s)', spawn_text, formatted_area, formatted_tower, floor, enemy_text))
+        windower.add_to_chat(123, string.format('%s reported: %s, %s F%d%s', spawn_text, formatted_area, formatted_tower, floor, enemy_text))
         return true
     else
         return false
     end
 end
 
--- Submit TOD report
-function M.submit_tod_report(area, tower, floor, enemy_input)
+-- Submit TOD report (handles both automatic and manual)
+function M.submit_tod_report(area, tower, floor, enemy_input, job_or_name)
     local player_info = windower.ffxi.get_player()
     local server_info = windower.ffxi.get_info()
     
@@ -99,25 +99,46 @@ function M.submit_tod_report(area, tower, floor, enemy_input)
     local token = generate_token(player_name, server_id)
     
     local body = string.format(
-        '{"area":"%s","tower":"%s","floor":%d,"server":"%s","token":"%s"',
-        area, tower, floor, server_name, token
+        '{"area":"%s","server":"%s","token":"%s"',
+        area, server_name, token
     )
     
-    if enemy_input then
-        body = body .. ',"enemyInput":"' .. enemy_input .. '"}'
-    else
-        body = body .. '}'
+    -- Add tower and floor if provided (automatic TOD)
+    if tower and floor then
+        body = body .. string.format(',"tower":"%s","floor":%d', tower, floor)
     end
+    
+    if enemy_input then
+        body = body .. ',"enemyInput":"' .. enemy_input .. '"'
+    end
+    
+    -- Add job/name if provided (manual TOD)
+    if job_or_name then
+        body = body .. ',"jobOrName":"' .. job_or_name .. '"'
+    end
+    
+    body = body .. '}'
     
     local success = put_request(tod_endpoint, body)
     
     if success then
         local formatted_area = format_location_name(area)
-        local formatted_tower = format_location_name(tower)
-        local enemy_text = enemy_input and (" (" .. enemy_input .. ")") or ""
-        windower.add_to_chat(123, string.format('TOD reported: %s, %s F%d (%s)', formatted_area, formatted_tower, floor, enemy_text))
+        
+        -- Format output based on available data
+        if tower and floor then
+            local formatted_tower = format_location_name(tower)
+            local enemy_text = enemy_input and (" (" .. enemy_input .. ")") or ""
+            windower.add_to_chat(123, string.format('TOD reported: %s, %s F%d%s', formatted_area, formatted_tower, floor, enemy_text))
+        elseif job_or_name then
+            windower.add_to_chat(123, string.format('TOD reported: %s (%s)', formatted_area, job_or_name))
+        else
+            windower.add_to_chat(123, string.format('TOD reported: %s', formatted_area))
+        end
         return true
     else
+        if job_or_name then
+            windower.add_to_chat(123, string.format('[WhereIsNM] Failed to report TOD for %s', job_or_name))
+        end
         return false
     end
 end
@@ -276,6 +297,7 @@ function put_request(url, body)
     end
 end
 
+-- HTTP GET helper
 function get_request(url, headers)
     local response_body = {}
 

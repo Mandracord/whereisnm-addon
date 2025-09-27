@@ -1,6 +1,8 @@
 require('luau')
+api = require('api')
 
 local M = {}
+local tracked_nm = nil
 
 M.limbus_nms = {
     [37] = S{ -- Temenos
@@ -97,6 +99,54 @@ function M.parse_floor_to_api_format(floor_name, zone_id)
     end
     
     return nil, nil, nil
+end
+
+function M.check_and_track_tod(current_floor)
+    local player = windower.ffxi.get_player()
+    local zone_info = windower.ffxi.get_info()
+    
+    -- Check if we're in valid conditions
+    if not player or not zone_info then return end
+    if zone_info.zone ~= 37 and zone_info.zone ~= 38 then 
+        tracked_nm = nil
+        return 
+    end
+    if player.status ~= 1 then 
+        tracked_nm = nil
+        return 
+    end
+    
+    local target = windower.ffxi.get_mob_by_target('t')
+    
+    -- If no target or target changed, clear tracking
+    if not target or (tracked_nm and tracked_nm.id ~= target.id) then
+        tracked_nm = nil
+    end
+    
+    -- Check if target is an NM and start tracking
+    if target and M.limbus_nms[zone_info.zone]:contains(target.name) and not tracked_nm then
+        if current_floor then
+            local area, tower, floor = M.parse_floor_to_api_format(current_floor, zone_info.zone)
+            if area and tower and floor then
+                tracked_nm = {
+                    id = target.id,
+                    name = target.name,
+                    area = area,
+                    tower = tower,
+                    floor = floor
+                }
+            end
+        end
+    end
+    
+    -- Monitor hpp
+    if tracked_nm then
+        local mob = windower.ffxi.get_mob_by_id(tracked_nm.id)
+        if mob and mob.hpp == 0 then
+            api.submit_tod_report(tracked_nm.area, tracked_nm.tower, tracked_nm.floor, tracked_nm.name)
+            tracked_nm = nil
+        end
+    end
 end
 
 return M

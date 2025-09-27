@@ -55,14 +55,14 @@ function M.queue_spawn_report(area, tower, floor, spawn_type, mob_name, mob_id)
     
     local enemy_text = mob_name and (" (" .. mob_name .. ")") or ""
     local spawn_text = spawn_type == "nm" and "NM" or "???"
-    windower.add_to_chat(123, string.format('[WhereIsNM] Queued %s: %s %s F%d%s', 
+    windower.add_to_chat(123, string.format('Queued %s: %s %s F%d%s', 
         spawn_text, area, tower, floor, enemy_text))
 end
 
 function M.send_queued_reports()
     if #spawn_queue == 0 then return end
     
-    windower.add_to_chat(123, string.format('[WhereIsNM] Sending %d queued reports...', #spawn_queue))
+    windower.add_to_chat(123, string.format('Sending %d queued reports...', #spawn_queue))
     
     local sent_count = 0
     for i = #spawn_queue, 1, -1 do
@@ -81,11 +81,11 @@ function M.send_queued_reports()
     save_queue()
     
     if sent_count > 0 then
-        windower.add_to_chat(123, string.format('[WhereIsNM] Successfully sent %d reports', sent_count))
+        windower.add_to_chat(123, string.format('Successfully sent %d reports', sent_count))
     end
     
     if #spawn_queue > 0 then
-        windower.add_to_chat(123, string.format('[WhereIsNM] %d reports remain in queue (failed to send)', #spawn_queue))
+        windower.add_to_chat(123, string.format('%d reports remain in queue (failed to send)', #spawn_queue))
     end
 end
 

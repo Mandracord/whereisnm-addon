@@ -13,7 +13,8 @@ v0.0.4 : Added version checking
 v0.0.5 : Added <t> target support, fixed //nm command to clearly display if a NM was killed XX:XX ago.
 v0.0.6 : Added delete command for own reports (if you need to correct a incorrect report).
 v0.0.7 : Added queue system for batch reporting to eliminate gameplay performance impact.
-Removed redundant manual report command.
+         Removed redundant manual report command.
+         Added automatic TOD detection and manual TOD reporting commands.
 ---------------------------------------------------------------------------
 ]]
 
@@ -102,6 +103,10 @@ function findTarget_and_sendReport()
     end
 end
 
+function tod_monitor_loop()
+    util_data.check_and_track_tod(current_floor)
+end
+
 windower.register_event('outgoing chunk', function(id, data)
     if id == 0x05C then
         zoning_in_progress = true
@@ -133,28 +138,76 @@ windower.register_event('addon command', function(command, ...)
     elseif command == 'send' then
         auto_send = not auto_send
         local status = auto_send and 'enabled' or 'disabled'
-        windower.add_to_chat(123, '[WhereIsNM] Auto-reporting ' .. status)
+        windower.add_to_chat(123, string.format('[%s] Auto-reporting %s', _addon.name, status))
         return
+
     elseif command == 'hud' then
         if displaybox:visible() then
             displaybox:hide()
             auto_refresh_enabled = false
-            windower.add_to_chat(123, '[WhereIsNM] HUD hidden')
+            windower.add_to_chat(123, string.format('[%s] HUD hidden', _addon.name))
         else
             local reports = api.get_latest_reports(windower.ffxi.get_info().server)
             displaybox.nm_info = format_box_display(reports)
             displaybox:show()
             auto_refresh_enabled = true
-            windower.add_to_chat(123, '[WhereIsNM] HUD visible')
+            windower.add_to_chat(123, string.format('[%s] HUD visible', _addon.name))
         end
         return
-    elseif command == 'help' then 
-        windower.add_to_chat(180,'[WhereIsNM] Commands:')
-        windower.add_to_chat(180,'//nm send - Enable/disable auto-reporting')
-        windower.add_to_chat(180,'//nm hud - Toggle HUD display')
+
+    elseif command == 'tod' then
+        local zone_info = windower.ffxi.get_info()
+        local zone_id = zone_info.zone
+        local in_limbus = (zone_id == 37 or zone_id == 38)
+        
+        -- Determine if we have zone parameter or not
+        local zone_param, job_or_name
+        
+        if in_limbus then
+            -- In Limbus: //nm tod <job_or_name>
+            if #args == 0 then
+                windower.add_to_chat(123, '[WhereIsNM] Usage: //nm tod <job_or_name>')
+                return
+            end
+            job_or_name = args:concat(' ')
+            
+            -- Auto-detect zone from current location
+            if zone_id == 37 then
+                zone_param = 'temenos'
+            elseif zone_id == 38 then
+                zone_param = 'apollyon'
+            end
+        else
+            -- Outside Limbus: //nm tod <zone> <job_or_name>
+            if #args < 2 then
+                windower.add_to_chat(123, '[WhereIsNM] Usage: //nm tod <zone> <job_or_name>')
+                return
+            end
+            zone_param = args[1]:lower()
+            table.remove(args, 1)
+            job_or_name = args:concat(' ')
+            
+            -- Validate zone
+            if zone_param ~= 'temenos' and zone_param ~= 'apollyon' then
+                windower.add_to_chat(123, '[WhereIsNM] Invalid zone. Use "temenos" or "apollyon"')
+                return
+            end
+        end
+        
+        -- Call API to submit manual TOD report
+        api.submit_tod_report(zone_param, nil, nil, nil, job_or_name)
         return
+
+    elseif command == 'help' then 
+        windower.add_to_chat(180, string.format('[%s] Commands:', _addon.name))
+        windower.add_to_chat(180, '//nm send - Enable/disable auto-reporting')
+        windower.add_to_chat(180, '//nm hud - Toggle HUD display')
+        windower.add_to_chat(180, '//nm tod <job_or_name> - Report TOD (in Limbus)')
+        windower.add_to_chat(180, '//nm tod <zone> <job_or_name> - Report TOD (outside Limbus)')
+        return
+
     else
-        windower.add_to_chat(123, '[WhereIsNM] Unknown command. Use //nm help')
+        windower.add_to_chat(123, string.format('[%s] Unknown command. Use //nm help', _addon.name))
     end
 end)
 
@@ -165,3 +218,4 @@ function auto_send_loop()
 end
 
 auto_send_loop:loop(3)
+tod_monitor_loop:loop(2)
