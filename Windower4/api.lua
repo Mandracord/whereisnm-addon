@@ -1,13 +1,15 @@
 require("socket")
 require("strings") 
 require("ltn12")
-local https = require("ssl.https")
+local https = require("socket.http")
+--local https = require("ssl.https")
 local json = require("json")
 local sha = require("sha2")
 res = require('resources')
 files = require('files')
 
-local base_url = "https://whereisnm.com"
+local base_url = "http://localhost:3000"
+--local base_url = "https://whereisnm.com"
 local reports_endpoint = base_url .. "/api/v1/reports"
 local tod_endpoint = base_url .. "/api/v1/reports/tod"
 
@@ -98,12 +100,16 @@ function M.submit_tod_report(area, tower, floor, enemy_input, job_or_name)
     local server_name = res.servers[server_id].en
     local token = generate_token(player_name, server_id)
     
+    if job_or_name then
+        job_or_name = job_or_name:sub(1,1):upper() .. job_or_name:sub(2):lower()
+    end
+    
     local body = string.format(
         '{"area":"%s","server":"%s","token":"%s"',
         area, server_name, token
     )
     
-    -- Add tower and floor if provided (automatic TOD)
+    -- Add tower and floor if provided
     if tower and floor then
         body = body .. string.format(',"tower":"%s","floor":%d', tower, floor)
     end
@@ -112,32 +118,54 @@ function M.submit_tod_report(area, tower, floor, enemy_input, job_or_name)
         body = body .. ',"enemyInput":"' .. enemy_input .. '"'
     end
     
-    -- Add job/name if provided (manual TOD)
+    -- Add job/name if provided
     if job_or_name then
         body = body .. ',"jobOrName":"' .. job_or_name .. '"'
     end
     
     body = body .. '}'
     
-    local success = put_request(tod_endpoint, body)
+    local success, response_text = put_request(tod_endpoint, body)
     
     if success then
         local formatted_area = format_location_name(area)
         
-        -- Format output based on available data
         if tower and floor then
             local formatted_tower = format_location_name(tower)
             local enemy_text = enemy_input and (" (" .. enemy_input .. ")") or ""
-            windower.add_to_chat(123, string.format('TOD reported: %s, %s F%d%s', formatted_area, formatted_tower, floor, enemy_text))
+            windower.add_to_chat(123, string.format('[WhereIsNM] TOD reported: %s, %s F%d%s', 
+                formatted_area, formatted_tower, floor, enemy_text))
         elseif job_or_name then
-            windower.add_to_chat(123, string.format('TOD reported: %s (%s)', formatted_area, job_or_name))
+            windower.add_to_chat(123, string.format('[WhereIsNM] TOD reported: %s - %s', 
+                formatted_area, job_or_name))
         else
-            windower.add_to_chat(123, string.format('TOD reported: %s', formatted_area))
+            windower.add_to_chat(123, string.format('[WhereIsNM] TOD reported: %s', formatted_area))
         end
         return true
     else
-        if job_or_name then
-            windower.add_to_chat(123, string.format('[WhereIsNM] Failed to report TOD for %s', job_or_name))
+        local tod_already_reported = response_text and response_text:match("TOD already reported")
+        
+        if tod_already_reported then
+            local formatted_area = format_location_name(area)
+            
+            if tower and floor then
+                local formatted_tower = format_location_name(tower)
+                local enemy_text = enemy_input and (" (" .. enemy_input .. ")") or ""
+                windower.add_to_chat(123, string.format('[WhereIsNM] TOD already reported for: %s, %s F%d%s', 
+                    formatted_area, formatted_tower, floor, enemy_text))
+            elseif job_or_name then
+                windower.add_to_chat(123, string.format('[WhereIsNM] TOD already reported for: %s - %s', 
+                    formatted_area, job_or_name))
+            else
+                windower.add_to_chat(123, string.format('[WhereIsNM] TOD already reported for: %s', 
+                    formatted_area))
+            end
+        else
+            if job_or_name then
+                windower.add_to_chat(123, string.format('[WhereIsNM] Failed to report TOD for %s', job_or_name))
+            else
+                windower.add_to_chat(123, '[WhereIsNM] Failed to report TOD')
+            end
         end
         return false
     end
@@ -176,7 +204,13 @@ function format_reports_display(reports, server_name)
 
     local reports_array = reports:match('"reports":%{"temenos":%[(.-)%]%}')
     if not reports_array then
-        return "Could not parse reports"
+        if reports:match('"reports":%s*{}') or 
+        reports:match('"reports":%s*{%s*"temenos":%s*%[%s*%]%s*,%s*"apollyon":%s*%[%s*%]}') or
+        reports:match('"totalCount":%s*0') then
+            return "No recent data found for " .. server_name
+        else
+            return "No data available for " .. server_name
+        end
     end
 
     local report_strings = {}
@@ -289,11 +323,11 @@ function put_request(url, body)
     local response_text = table.concat(response_body)
     
     if status_code == 200 or status_code == 201 then
-        return true
+        return true, response_text
     else
         local error_details = "HTTP " .. (status_code or "unknown") .. ": " .. (response_text or "no response")
         log_error("HTTP_PUT_ERROR", string.format("PUT to %s failed - %s", url, error_details))
-        return false
+        return false, response_text
     end
 end
 

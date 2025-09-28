@@ -1,5 +1,6 @@
 require('luau')
 api = require('api')
+queue = require('queue')
 
 local M = {}
 local tracked_nm = nil
@@ -105,7 +106,6 @@ function M.check_and_track_tod(current_floor)
     local player = windower.ffxi.get_player()
     local zone_info = windower.ffxi.get_info()
     
-    -- Check if we're in valid conditions
     if not player or not zone_info then return end
     if zone_info.zone ~= 37 and zone_info.zone ~= 38 then 
         tracked_nm = nil
@@ -118,12 +118,10 @@ function M.check_and_track_tod(current_floor)
     
     local target = windower.ffxi.get_mob_by_target('t')
     
-    -- If no target or target changed, clear tracking
     if not target or (tracked_nm and tracked_nm.id ~= target.id) then
         tracked_nm = nil
     end
     
-    -- Check if target is an NM and start tracking
     if target and M.limbus_nms[zone_info.zone]:contains(target.name) and not tracked_nm then
         if current_floor then
             local area, tower, floor = M.parse_floor_to_api_format(current_floor, zone_info.zone)
@@ -139,14 +137,42 @@ function M.check_and_track_tod(current_floor)
         end
     end
     
-    -- Monitor hpp
     if tracked_nm then
         local mob = windower.ffxi.get_mob_by_id(tracked_nm.id)
         if mob and mob.hpp == 0 then
-            api.submit_tod_report(tracked_nm.area, tracked_nm.tower, tracked_nm.floor, tracked_nm.name)
+            -- queue instead of submit
+            queue.queue_tod_report(
+                tracked_nm.area,
+                tracked_nm.tower,
+                tracked_nm.floor,
+                tracked_nm.name,
+                nil
+            )
             tracked_nm = nil
         end
     end
+end
+
+function M.format_box_display(reports)
+    if not reports or reports == "Unable to fetch latest data" then
+        return "No recent data"
+    end
+    
+    local lines = {}
+    for line in reports:gmatch("[^\r\n]+") do
+        if line:match("^[%s]*[A-Z]") and not line:match("Reported") then
+            line = line:gsub("^%s+", ""):gsub("%s+$", "")
+            if #line > 0 then
+                table.insert(lines, line)
+            end
+        end
+    end
+    
+    if #lines == 0 then
+        return "No recent data"
+    end
+    
+    return table.concat(lines, "\n")
 end
 
 return M

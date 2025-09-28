@@ -35,13 +35,16 @@ defaults.flags = T{}
 defaults.flags.bold = true
 defaults.flags.draggable = true
 defaults.show_displaybox = true
+defaults.auto_send = true
+defaults.debug = true
 
 settings = config.load(defaults)
+queue.load_queue()
 local displaybox = texts.new('${nm_info}', settings.text, settings)
 local auto_refresh_enabled = false
 local current_floor = nil
 local zoning_in_progress = false
-local auto_send = false
+local auto_send = settings.auto_send
 
 windower.register_event('load','login',function ()
     if windower.ffxi.get_info().logged_in then
@@ -85,18 +88,31 @@ function findTarget_and_sendReport()
     if zone_id ~= 37 and zone_id ~= 38 then return end
     
     local mobs = windower.ffxi.get_mob_array()
+    local max_distance = 50
     
     for i, mob in pairs(mobs) do
         if mob.valid_target then
-            if util_data.limbus_nms[zone_id]:contains(mob.name) then
-                local area, tower, floor = util_data.parse_floor_to_api_format(current_floor, zone_id)
-                if area and tower and floor then
-                    queue.queue_spawn_report(area, tower, floor, 'nm', mob.name, mob.id)
-                end
-            elseif mob.spawn_type == 2 then
-                local area, tower, floor = util_data.parse_floor_to_api_format(current_floor, zone_id)
-                if area and tower and floor then
-                    queue.queue_spawn_report(area, tower, floor, 'question', nil, mob.id)
+            local distance = mob.distance and math.floor(mob.distance:sqrt() * 100) / 100 or 0
+            
+            if distance > 0 and distance <= max_distance then
+                if util_data.limbus_nms[zone_id]:contains(mob.name) then
+                    if settings.debug then
+                        windower.add_to_chat(123, string.format('[DEBUG] Found NM: %s (ID: %d, Distance: %.2fy, Valid: %s)', 
+                            mob.name, mob.id, distance, tostring(mob.valid_target)))
+                    end
+                    local area, tower, floor = util_data.parse_floor_to_api_format(current_floor, zone_id)
+                    if area and tower and floor then
+                        queue.queue_spawn_report(area, tower, floor, 'nm', mob.name, mob.id, distance)
+                    end
+                elseif mob.spawn_type == 2 and mob.name == '???' then
+                    if settings.debug then
+                        windower.add_to_chat(123, string.format('[DEBUG] Found ??? (ID: %d, Distance: %.2fy, Valid: %s)', 
+                            mob.id, distance, tostring(mob.valid_target)))
+                    end
+                    local area, tower, floor = util_data.parse_floor_to_api_format(current_floor, zone_id)
+                    if area and tower and floor then
+                        queue.queue_spawn_report(area, tower, floor, 'question', nil, mob.id, distance)
+                    end
                 end
             end
         end
@@ -114,7 +130,7 @@ windower.register_event('outgoing chunk', function(id, data)
         zoning_in_progress = false
         coroutine.schedule(function()
             check_current_floor()
-        end, 2)
+        end, 0.5)
     end
 end)
 
@@ -132,11 +148,13 @@ windower.register_event('addon command', function(command, ...)
 
     if not command or command == '' then
         local reports = api.get_latest_reports(windower.ffxi.get_info().server)
-        windower.add_to_chat(123, format_box_display(reports))
+        windower.add_to_chat(123, util_data.format_box_display(reports))
         return
     
     elseif command == 'send' then
         auto_send = not auto_send
+        settings.auto_send = auto_send
+        settings:save()
         local status = auto_send and 'enabled' or 'disabled'
         windower.add_to_chat(123, string.format('[%s] Auto-reporting %s', _addon.name, status))
         return
@@ -148,7 +166,7 @@ windower.register_event('addon command', function(command, ...)
             windower.add_to_chat(123, string.format('[%s] HUD hidden', _addon.name))
         else
             local reports = api.get_latest_reports(windower.ffxi.get_info().server)
-            displaybox.nm_info = format_box_display(reports)
+            displaybox.nm_info = util_data.format_box_display(reports)
             displaybox:show()
             auto_refresh_enabled = true
             windower.add_to_chat(123, string.format('[%s] HUD visible', _addon.name))
