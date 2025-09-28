@@ -4,7 +4,8 @@ require("ltn12")
 local https = require("socket.http")
 --local https = require("ssl.https")
 local json = require("json")
-local sha = require("sha2")
+local sha = require("util/sha2")
+local formatter = require('util/format')
 res = require('resources')
 files = require('files')
 
@@ -33,12 +34,6 @@ local function log_error(error_type, details)
     log_file:append(log_entry)
 end
 
--- Format location name for display
-local function format_location_name(name)
-    if not name or name == "" then return name end
-    return name:sub(1,1):upper() .. name:sub(2)
-end
-
 -- Generate token from player name and server ID
 local function generate_token(player_name, server_id)
     local input = string.lower(player_name) .. "_" .. tostring(server_id)
@@ -46,13 +41,13 @@ local function generate_token(player_name, server_id)
 end
 
 -- Submit NM/??? report
-function M.submit_report(area, tower, floor, spawn_type, mob_name, mob_id)
+function M.submit_report(area, tower, floor, spawn_type, mob_name)
     local player_info = windower.ffxi.get_player()
     local server_info = windower.ffxi.get_info()
     
     if not player_info or not server_info then
         log_error("SUBMIT_ERROR", "Cannot get player/server info")
-        return false
+        return false, nil
     end
     
     local player_name = player_info.name
@@ -61,8 +56,8 @@ function M.submit_report(area, tower, floor, spawn_type, mob_name, mob_id)
     local token = generate_token(player_name, server_id)
     
     local body = string.format(
-        '{"area":"%s","tower":"%s","floor":%d,"server":"%s","spawnType":"%s","token":"%s","mobId":%d',
-        area, tower, floor, server_name, spawn_type, token, mob_id
+        '{"area":"%s","tower":"%s","floor":%d,"server":"%s","spawnType":"%s","token":"%s"',
+        area, tower, floor, server_name, spawn_type, token
     )
     
     if mob_name then
@@ -71,28 +66,24 @@ function M.submit_report(area, tower, floor, spawn_type, mob_name, mob_id)
         body = body .. '}'
     end
     
-    local success = post_request(reports_endpoint, body)
+    local success, status_code = post_request(reports_endpoint, body)
     
     if success then
-        local formatted_area = format_location_name(area)
-        local formatted_tower = format_location_name(tower)
-        local enemy_text = mob_name and (" (" .. mob_name .. ")") or ""
-        local spawn_text = spawn_type == "nm" and "NM" or "???"
-        windower.add_to_chat(123, string.format('%s reported: %s, %s F%d%s', spawn_text, formatted_area, formatted_tower, floor, enemy_text))
-        return true
+        windower.add_to_chat(123, formatter.format_spawn_report(spawn_type, area, tower, floor, mob_name))
+        return true, status_code
     else
-        return false
+        return false, status_code
     end
 end
 
--- Submit TOD report (handles both automatic and manual)
+-- Submit TOD report
 function M.submit_tod_report(area, tower, floor, enemy_input, job_or_name)
     local player_info = windower.ffxi.get_player()
     local server_info = windower.ffxi.get_info()
     
     if not player_info or not server_info then
         log_error("TOD_ERROR", "Cannot get player/server info")
-        return false
+        return false, nil
     end
     
     local player_name = player_info.name
@@ -101,7 +92,7 @@ function M.submit_tod_report(area, tower, floor, enemy_input, job_or_name)
     local token = generate_token(player_name, server_id)
     
     if job_or_name then
-        job_or_name = job_or_name:sub(1,1):upper() .. job_or_name:sub(2):lower()
+        job_or_name = formatter.format_location_name(job_or_name)
     end
     
     local body = string.format(
@@ -109,7 +100,6 @@ function M.submit_tod_report(area, tower, floor, enemy_input, job_or_name)
         area, server_name, token
     )
     
-    -- Add tower and floor if provided
     if tower and floor then
         body = body .. string.format(',"tower":"%s","floor":%d', tower, floor)
     end
@@ -118,59 +108,47 @@ function M.submit_tod_report(area, tower, floor, enemy_input, job_or_name)
         body = body .. ',"enemyInput":"' .. enemy_input .. '"'
     end
     
-    -- Add job/name if provided
     if job_or_name then
         body = body .. ',"jobOrName":"' .. job_or_name .. '"'
     end
     
     body = body .. '}'
     
-    local success, response_text = put_request(tod_endpoint, body)
-    
+    local success, response_text, status_code = put_request(tod_endpoint, body)
+        
     if success then
-        local formatted_area = format_location_name(area)
-        
-        if tower and floor then
-            local formatted_tower = format_location_name(tower)
-            local enemy_text = enemy_input and (" (" .. enemy_input .. ")") or ""
-            windower.add_to_chat(123, string.format('[WhereIsNM] TOD reported: %s, %s F%d%s', 
-                formatted_area, formatted_tower, floor, enemy_text))
-        elseif job_or_name then
-            windower.add_to_chat(123, string.format('[WhereIsNM] TOD reported: %s - %s', 
-                formatted_area, job_or_name))
-        else
-            windower.add_to_chat(123, string.format('[WhereIsNM] TOD reported: %s', formatted_area))
-        end
-        return true
+        windower.add_to_chat(123, formatter.format_tod_report(area, tower, floor, enemy_input, job_or_name))
+        return true, status_code
+    elseif status_code == 409 then
+        local formatted_area = formatter.format_location_name(area)
+        windower.add_to_chat(123, string.format('[WhereIsNM] TOD already reported for %s', formatted_area))
+        return false, status_code
+    elseif status_code == 422 then
+        local formatted_area = formatter.format_location_name(area)
+        windower.add_to_chat(123, string.format('[WhereIsNM] Job/NM: %s not found in %s.', 
+            job_or_name or enemy_input or "unknown", formatted_area))
+        return false, status_code
     else
-        local tod_already_reported = response_text and response_text:match("TOD already reported")
-        
-        if tod_already_reported then
-            local formatted_area = format_location_name(area)
-            
-            if tower and floor then
-                local formatted_tower = format_location_name(tower)
-                local enemy_text = enemy_input and (" (" .. enemy_input .. ")") or ""
-                windower.add_to_chat(123, string.format('[WhereIsNM] TOD already reported for: %s, %s F%d%s', 
-                    formatted_area, formatted_tower, floor, enemy_text))
-            elseif job_or_name then
-                windower.add_to_chat(123, string.format('[WhereIsNM] TOD already reported for: %s - %s', 
-                    formatted_area, job_or_name))
+        local error_message = "Failed to report TOD"
+        if response_text then
+            local success_parse, parsed = pcall(json.decode, response_text)
+            if success_parse and parsed.message then
+                error_message = parsed.message
+            elseif success_parse and parsed.error then
+                error_message = parsed.error
             else
-                windower.add_to_chat(123, string.format('[WhereIsNM] TOD already reported for: %s', 
-                    formatted_area))
-            end
-        else
-            if job_or_name then
-                windower.add_to_chat(123, string.format('[WhereIsNM] Failed to report TOD for %s', job_or_name))
-            else
-                windower.add_to_chat(123, '[WhereIsNM] Failed to report TOD')
+                -- Fallback to generic message with status code
+                error_message = string.format("Failed to report TOD (HTTP %s)", status_code or "unknown")
             end
         end
-        return false
+        
+        local formatted_area = formatter.format_location_name(area)
+        windower.add_to_chat(123, string.format('[WhereIsNM] %s for %s', error_message, formatted_area))
+        return false, status_code
     end
 end
 
+-- Fetch latest reports
 function M.get_latest_reports(server_id)
     local player_info = windower.ffxi.get_player()
     local server_info = windower.ffxi.get_info()
@@ -184,9 +162,7 @@ function M.get_latest_reports(server_id)
     local url = base_url .. "/api/v1/reports/recent/" .. server_name
     local token = generate_token(player_info.name, server_info.server)
 
-    local headers = {
-        ["Authorization"] = "Bearer " .. token
-    }
+    local headers = { ["Authorization"] = "Bearer " .. token }
 
     local success, response = get_request(url, headers)
 
@@ -197,6 +173,7 @@ function M.get_latest_reports(server_id)
     end
 end
 
+-- Format reports for display
 function format_reports_display(reports, server_name)
     local output = "\n"
     local nm_reports = {}
@@ -204,21 +181,10 @@ function format_reports_display(reports, server_name)
 
     local reports_array = reports:match('"reports":%{"temenos":%[(.-)%]%}')
     if not reports_array then
-        if reports:match('"reports":%s*{}') or 
-        reports:match('"reports":%s*{%s*"temenos":%s*%[%s*%]%s*,%s*"apollyon":%s*%[%s*%]}') or
-        reports:match('"totalCount":%s*0') then
-            return "No recent data found for " .. server_name
-        else
-            return "No data available for " .. server_name
-        end
+        return "No recent data found for " .. server_name
     end
 
-    local report_strings = {}
-    for report in reports_array:gmatch('{[^}]*}') do
-        table.insert(report_strings, report)
-    end
-
-    for _, report_str in ipairs(report_strings) do
+    for report_str in reports_array:gmatch('{[^}]*}') do
         local displayName = report_str:match('"displayName":"([^"]*)"')
         local minutes_ago = report_str:match('"minutes_ago":"([^"]*)"')
         local spawnType = report_str:match('"spawnTypeDisplay":"([^"]*)"')
@@ -226,15 +192,14 @@ function format_reports_display(reports, server_name)
         local time_of_death = report_str:match('"time_of_death":"([^"]*)"')
         
         if displayName and minutes_ago and spawnType then
-            local time_text = format_time_ago(tonumber(minutes_ago))
+            local time_text = formatter.format_time_ago(tonumber(minutes_ago))
             local enemy_text = enemyDisplay and (" - " .. enemyDisplay) or ""
             
             if time_of_death then
                 time_text = "Killed " .. time_text
             end
 
-            local report_line = string.format("%s%s - %s ago\n",
-                displayName, enemy_text, time_text)
+            local report_line = string.format("%s%s - %s ago\n", displayName, enemy_text, time_text)
 
             if spawnType == "NM" then
                 table.insert(nm_reports, report_line)
@@ -245,31 +210,16 @@ function format_reports_display(reports, server_name)
     end
 
     if #nm_reports > 0 then
-        output = output .. "Reported NM(s) for " .. server_name .. ":\n"
-        for _, report in ipairs(nm_reports) do
-            output = output .. report
-        end
+        output = output .. "Reported NM(s) for " .. server_name .. ":\n" .. table.concat(nm_reports)
     end
-
     if #question_reports > 0 then
-        output = output .. "Reported ??? for " .. server_name .. ":\n"
-        for _, report in ipairs(question_reports) do
-            output = output .. report
-        end
+        output = output .. "Reported ??? for " .. server_name .. ":\n" .. table.concat(question_reports)
     end
 
     return output
 end
 
-function format_time_ago(minutes)
-    if minutes < 60 then
-        return string.format("%dm", math.floor(minutes))
-    else
-        local hours = math.floor(minutes / 60)
-        local mins = math.floor(minutes % 60)
-        return string.format("%dh %dm", hours, mins)
-    end
-end
+
 
 -- HTTP POST helper
 function post_request(url, body)
@@ -284,7 +234,7 @@ function post_request(url, body)
     
     local result, status_code = https.request{
         url = url,
-        method = "POST", 
+        method = "POST",
         headers = headers,
         source = ltn12.source.string(body),
         sink = ltn12.sink.table(response_body)
@@ -293,11 +243,11 @@ function post_request(url, body)
     local response_text = table.concat(response_body)
     
     if status_code == 200 or status_code == 201 then
-        return true
+        return true, status_code
     else
         local error_details = "HTTP " .. (status_code or "unknown") .. ": " .. (response_text or "no response")
         log_error("HTTP_POST_ERROR", string.format("POST to %s failed - %s", url, error_details))
-        return false
+        return false, status_code
     end
 end
 
@@ -314,7 +264,7 @@ function put_request(url, body)
     
     local result, status_code = https.request{
         url = url,
-        method = "PUT", 
+        method = "PUT",
         headers = headers,
         source = ltn12.source.string(body),
         sink = ltn12.sink.table(response_body)
@@ -323,11 +273,14 @@ function put_request(url, body)
     local response_text = table.concat(response_body)
     
     if status_code == 200 or status_code == 201 then
-        return true, response_text
+        return true, response_text, status_code
+    elseif status_code == 409 or status_code == 422 then
+        -- Handle expected error responses without logging as errors
+        return false, response_text, status_code
     else
         local error_details = "HTTP " .. (status_code or "unknown") .. ": " .. (response_text or "no response")
         log_error("HTTP_PUT_ERROR", string.format("PUT to %s failed - %s", url, error_details))
-        return false, response_text
+        return false, response_text, status_code
     end
 end
 

@@ -1,6 +1,7 @@
 require('luau')
-api = require('api')
-queue = require('queue')
+api = require('util/api')
+queue = require('util/queue')
+formatter = require('util/format')
 
 local M = {}
 local tracked_nm = nil
@@ -8,8 +9,8 @@ local tracked_nm = nil
 M.limbus_nms = {
     [37] = S{ -- Temenos
         'Agoge', 'Hesychast\'s', 'Piety', 'Archmage\'s', 'Vitiation', 'Plunderer\'s', 
-        'Caballarius', 'Fallen\'s', 'Ankusa', 'Bihu', 'Arcadian', 'Sakonjin', 
-        'Mochizuki', 'Pteroslav', 'Glyphic', 'Luhlaza', 'Lanun', 'Pitre', 
+        'Caballarius', 'Fallen\'s', 'Ankusa', 'Bihu', 'Arcadian', 'Sakonji', 
+        'Mochizuki', 'Pteroslaver', 'Glyphic', 'Luhlaza', 'Lanun', 'Pitre', 
         'Horos', 'Pedagogy', 'Bagua', 'Futhark'
     },
     [38] = S{ -- Apollyon  
@@ -102,27 +103,36 @@ function M.parse_floor_to_api_format(floor_name, zone_id)
     return nil, nil, nil
 end
 
+function M.log_tod_debug(message)
+    -- Use queue module's function to add to archive
+    queue.add_debug_log(message)
+end
+
 function M.check_and_track_tod(current_floor)
     local player = windower.ffxi.get_player()
     local zone_info = windower.ffxi.get_info()
     
     if not player or not zone_info then return end
     if zone_info.zone ~= 37 and zone_info.zone ~= 38 then 
-        tracked_nm = nil
+        if tracked_nm then
+            M.log_tod_debug("Left Limbus, clearing tracked NM")
+            tracked_nm = nil
+        end
         return 
     end
-    if player.status ~= 1 then 
+    
+    if tracked_nm and tracked_nm.floor_name and tracked_nm.floor_name ~= current_floor then
+        M.log_tod_debug(string.format("Floor changed from %s to %s, clearing tracked NM", 
+            tracked_nm.floor_name, current_floor or "unknown"))
         tracked_nm = nil
-        return 
     end
     
     local target = windower.ffxi.get_mob_by_target('t')
     
-    if not target or (tracked_nm and tracked_nm.id ~= target.id) then
-        tracked_nm = nil
-    end
-    
     if target and M.limbus_nms[zone_info.zone]:contains(target.name) and not tracked_nm then
+        M.log_tod_debug(string.format("Found potential NM target: %s (ID: %d)", 
+            target.name, target.id))
+        
         if current_floor then
             local area, tower, floor = M.parse_floor_to_api_format(current_floor, zone_info.zone)
             if area and tower and floor then
@@ -131,27 +141,60 @@ function M.check_and_track_tod(current_floor)
                     name = target.name,
                     area = area,
                     tower = tower,
-                    floor = floor
+                    floor = floor,
+                    floor_name = current_floor,
+                    tod_reported = false
                 }
+                M.log_tod_debug(string.format("Now tracking NM: %s in %s %s F%d", 
+                    target.name, area, tower, floor))
+            else
+                M.log_tod_debug("Could not parse floor information")
             end
+        else
+            M.log_tod_debug("No current floor information available")
         end
     end
     
-    if tracked_nm then
+    if tracked_nm and not tracked_nm.tod_reported then
         local mob = windower.ffxi.get_mob_by_id(tracked_nm.id)
-        if mob and mob.hpp == 0 then
-            -- queue instead of submit
-            queue.queue_tod_report(
+
+        local should_report = false
+        if not mob then
+            M.log_tod_debug("Tracked NM no longer found in mob array, assuming TOD")
+            should_report = true
+        elseif mob.hpp <= 1 then
+            M.log_tod_debug(string.format("Detected TOD for %s (HP: %d%%)", tracked_nm.name, mob.hpp))
+            should_report = true
+        elseif mob.hpp < 10 then
+            M.log_tod_debug(string.format("Tracked NM %s at %d%% HP", tracked_nm.name, mob.hpp))
+        end
+
+        if should_report then
+            -- Attempt API report first
+            local success = api.send_tod_report(
                 tracked_nm.area,
                 tracked_nm.tower,
                 tracked_nm.floor,
-                tracked_nm.name,
-                nil
+                tracked_nm.name
             )
+
+            -- Fallback to queue if API fails
+            if not success then
+                queue.queue_tod_report(
+                    tracked_nm.area,
+                    tracked_nm.tower,
+                    tracked_nm.floor,
+                    tracked_nm.name,
+                    nil
+                )
+            end
+
+            tracked_nm.tod_reported = true
             tracked_nm = nil
         end
     end
 end
+
 
 function M.format_box_display(reports)
     if not reports or reports == "Unable to fetch latest data" then
