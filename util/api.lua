@@ -121,7 +121,7 @@ function M.submit_tod_report(area, tower, floor, enemy_input, job_or_name)
         return true, status_code
     elseif status_code == 409 then
         local formatted_area = formatter.format_location_name(area)
-        windower.add_to_chat(123, string.format('[WhereIsNM] TOD already reported for %s', formatted_area))
+        windower.add_to_chat(123, string.format('[WhereIsNM] TOD has already been reported for %s', formatted_area))
         return false, status_code
     elseif status_code == 422 then
         local formatted_area = formatter.format_location_name(area)
@@ -137,7 +137,6 @@ function M.submit_tod_report(area, tower, floor, enemy_input, job_or_name)
             elseif success_parse and parsed.error then
                 error_message = parsed.error
             else
-                -- Fallback to generic message with status code
                 error_message = string.format("Failed to report TOD (HTTP %s)", status_code or "unknown")
             end
         end
@@ -219,8 +218,6 @@ function format_reports_display(reports, server_name)
     return output
 end
 
-
-
 -- HTTP POST helper
 function post_request(url, body)
     local response_body = {}
@@ -275,7 +272,6 @@ function put_request(url, body)
     if status_code == 200 or status_code == 201 then
         return true, response_text, status_code
     elseif status_code == 409 or status_code == 422 then
-        -- Handle expected error responses without logging as errors
         return false, response_text, status_code
     else
         local error_details = "HTTP " .. (status_code or "unknown") .. ": " .. (response_text or "no response")

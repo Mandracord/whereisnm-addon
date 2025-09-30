@@ -40,7 +40,6 @@ defaults.flags.bold = true
 defaults.flags.draggable = true
 defaults.show_displaybox = true
 defaults.auto_send = true
-defaults.debug = true
 
 -------------------------------------------------------------------------------------------------------------
 
@@ -54,7 +53,7 @@ local auto_send = settings.auto_send
 
 windower.register_event('load','login',function ()
     if windower.ffxi.get_info().logged_in then
-        windower.add_to_chat(123, '[WhereIsNM] Loaded. Use //nm help for commands.')
+        windower.add_to_chat(123, '[WhereIsNM] Thank you for using Where Is NM! Use //nm help for commands.')
     end
 end)
 
@@ -79,9 +78,6 @@ function check_current_floor()
     
     if floor_name ~= current_floor then
         current_floor = floor_name
-        if floor_name and auto_send then
-            windower.add_to_chat(123, string.format('[WhereIsNM] Entered %s', floor_name))
-        end
     end
 end
 
@@ -104,37 +100,16 @@ function findTarget_and_sendReport()
                 local area, tower, floor = util_data.parse_floor_to_api_format(current_floor, zone_id)
                 if area and tower and floor then
                     if util_data.limbus_nms[zone_id]:contains(mob.name) then
-                        if settings.debug then
-                            windower.add_to_chat(123, string.format(
-                                '[DEBUG] Found NM: %s (ID: %d, Distance: %.2fy, Valid: %s)', 
-                                mob.name, mob.id, distance, tostring(mob.valid_target)
-                            ))
-                        end
-
-                        -- Add to Queue as fallback
                         queue.queue_spawn_report(area, tower, floor, 'nm', mob.name, distance)
-
-                        -- Attempt to send data
                         local success = api.submit_report(area, tower, floor, 'nm', mob.name)
                         if not success then
-                            windower.add_to_chat(123, '[WhereIsNM] Failed to submit NM spawn immediately; will retry via queue')
+                            windower.add_to_chat(123, '[WhereIsNM] Report failed, added to queue for retry. Check log.txt for details.')
                         end
-
                     elseif mob.spawn_type == 2 and mob.name == '???' then
-                        if settings.debug then
-                            windower.add_to_chat(123, string.format(
-                                '[DEBUG] Found ??? (ID: %d, Distance: %.2fy, Valid: %s)', 
-                                mob.id, distance, tostring(mob.valid_target)
-                            ))
-                        end
-
-                        -- Add to Queue as fallback
                         queue.queue_spawn_report(area, tower, floor, 'question', nil, distance)
-
-                        -- Attempt to send data
                         local success = api.submit_report(area, tower, floor, 'question', nil)
                         if not success then
-                            windower.add_to_chat(123, '[WhereIsNM] Failed to submit ??? spawn immediately; will retry via queue')
+                            windower.add_to_chat(123, '[WhereIsNM] Report failed, added to queue for retry. Check log.txt for details.')
                         end
                     end
                 end
@@ -158,7 +133,6 @@ windower.register_event('outgoing chunk', function(id, data)
     end
 end)
 
--- Send queued reports when leaving Limbus
 windower.register_event('zone change', function(new_id, old_id)
     if (old_id == 37 or old_id == 38) and (new_id ~= 37 and new_id ~= 38) then
         queue.load_queue()
@@ -166,7 +140,6 @@ windower.register_event('zone change', function(new_id, old_id)
     else
         local queue_count = queue.get_queue_count()
         if queue_count > 0 then
-            windower.add_to_chat(123, string.format('[WhereIsNM] Zone change detected with %d pending reports, attempting to send...', queue_count))
             coroutine.schedule(queue.send_queued_reports, 2)
         end
     end
@@ -186,7 +159,7 @@ windower.register_event('addon command', function(command, ...)
         settings.auto_send = auto_send
         settings:save()
         local status = auto_send and 'enabled' or 'disabled'
-        windower.add_to_chat(123, string.format('[%s] Auto-reporting %s', _addon.name, status))
+        windower.add_to_chat(123, string.format('[%s] reporting %s', _addon.name, status))
         return
 
     elseif command == 'hud' then
@@ -208,42 +181,32 @@ windower.register_event('addon command', function(command, ...)
         local zone_id = zone_info.zone
         local in_limbus = (zone_id == 37 or zone_id == 38)
         
-        -- Determine if we have zone parameter or not
         local zone_param, job_or_name
         
         if in_limbus then
-            -- In Limbus: //nm tod <job_or_name>
             if #args == 0 then
                 windower.add_to_chat(123, '[WhereIsNM] Usage: //nm tod <job_or_name>')
                 return
             end
             job_or_name = args:concat(' ')
-            
-            -- Convert auto-translate if present
             job_or_name = windower.convert_auto_trans(job_or_name)
             
-            -- Auto-detect zone from current location
             if zone_id == 37 then
                 zone_param = 'temenos'
             elseif zone_id == 38 then
                 zone_param = 'apollyon'
             end
         else
-            -- Outside Limbus: //nm tod <zone> <job_or_name>
             if #args < 2 then
                 windower.add_to_chat(123, '[WhereIsNM] Usage: //nm tod <zone> <job_or_name>')
                 return
             end
             zone_param = args[1]:lower()
-            -- Convert auto-translate if present for zone parameter
             zone_param = windower.convert_auto_trans(zone_param):lower()
             table.remove(args, 1)
             job_or_name = args:concat(' ')
-            
-            -- Convert auto-translate if present for job/name
             job_or_name = windower.convert_auto_trans(job_or_name)
             
-            -- Validate zone
             if zone_param ~= 'temenos' and zone_param ~= 'apollyon' then
                 windower.add_to_chat(123, string.format('[WhereIsNM] Invalid zone. Use "%s" or "%s"', 
                     formatter.format_location_name('temenos'), formatter.format_location_name('apollyon')))
@@ -251,7 +214,6 @@ windower.register_event('addon command', function(command, ...)
             end
         end
         
-        -- Call API to submit manual TOD report
         api.submit_tod_report(zone_param, nil, nil, nil, job_or_name)
         return
 
