@@ -50,16 +50,26 @@ local auto_refresh_enabled = false
 local current_floor = nil
 local zoning_in_progress = false
 local auto_send = settings.auto_send
+local reported_mobs = {}
 
 windower.register_event('load','login',function ()
+    check_addon()
     if windower.ffxi.get_info().logged_in then
-        windower.add_to_chat(123, '[WhereIsNM] Thank you for using Where Is NM! Use //nm help for commands.')
+        windower.add_to_chat(123, string.format('[%s] Thank you for using WhereIsNM! Use //nm to get the latest update.', _addon.name))
     end
 end)
+
 
 -------------------------------------------------------------------------------------------------------------
 -- DO NOT EDIT BELOW THIS LINE
 -------------------------------------------------------------------------------------------------------------
+
+function check_addon()
+    local result = api.check_version(_addon.version)
+    if result then
+        windower.add_to_chat(123, string.format('[%s] %s', _addon.name, result))
+    end
+end
 
 function check_current_floor()
     local zone_info = windower.ffxi.get_info()
@@ -83,7 +93,6 @@ end
 
 function findTarget_and_sendReport()
     if not current_floor then return end
-    
     local zone_info = windower.ffxi.get_info()
     local zone_id = zone_info.zone
     
@@ -100,16 +109,27 @@ function findTarget_and_sendReport()
                 local area, tower, floor = util_data.parse_floor_to_api_format(current_floor, zone_id)
                 if area and tower and floor then
                     if util_data.limbus_nms[zone_id]:contains(mob.name) then
-                        queue.queue_spawn_report(area, tower, floor, 'nm', mob.name, distance)
-                        local success = api.submit_report(area, tower, floor, 'nm', mob.name)
-                        if not success then
-                            windower.add_to_chat(123, '[WhereIsNM] Report failed, added to queue for retry. Check log.txt for details.')
+                        local mob_key = string.format("%s_%s_%d_%d", area, tower, floor, mob.id)
+                        
+                        if not reported_mobs[mob_key] then
+                            queue.queue_spawn_report(area, tower, floor, 'nm', mob.name, distance)
+                            local success = api.submit_report(area, tower, floor, 'nm', mob.name)
+                            if not success then
+                                windower.add_to_chat(123, string.format('[WhereIsNM] Report for NM "%s" has failed. Added to queue for retry. Check log.txt for details.', mob.name))
+
+                            end
+                            reported_mobs[mob_key] = true
                         end
                     elseif mob.spawn_type == 2 and mob.name == '???' then
-                        queue.queue_spawn_report(area, tower, floor, 'question', nil, distance)
-                        local success = api.submit_report(area, tower, floor, 'question', nil)
-                        if not success then
-                            windower.add_to_chat(123, '[WhereIsNM] Report failed, added to queue for retry. Check log.txt for details.')
+                        local mob_key = string.format("%s_%s_%d_%d", area, tower, floor, mob.id)
+                        
+                        if not reported_mobs[mob_key] then
+                            queue.queue_spawn_report(area, tower, floor, 'question', nil, distance)
+                            local success = api.submit_report(area, tower, floor, 'question', nil)
+                            if not success then
+                                windower.add_to_chat(123, '[WhereIsNM] Report failed, added to queue for retry. Check log.txt for details.')
+                            end
+                            reported_mobs[mob_key] = true
                         end
                     end
                 end

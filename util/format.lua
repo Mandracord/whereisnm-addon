@@ -46,13 +46,11 @@ function M.format_floor_display(area, tower, floor)
     return string.format("%s %s F%d", formatted_area, formatted_tower, floor)
 end
 
-function M.format_spawn_report(spawn_type, area, tower, floor, mob_name, distance)
+function M.format_spawn_report(spawn_type, area, tower, floor, mob_name)
     local spawn_text = M.format_spawn_type(spawn_type)
     local location = M.format_floor_display(area, tower, floor)
     local enemy_text = M.format_enemy_text(mob_name)
-    local distance_text = distance and string.format(" (%.2fy)", distance) or ""
-    
-    return string.format('%s reported: %s%s%s', spawn_text, location, enemy_text, distance_text)
+    return string.format('[WhereIsNM] %s reported: %s%s', spawn_text, location, enemy_text)
 end
 
 function M.format_tod_report(area, tower, floor, enemy_input, job_or_name)
