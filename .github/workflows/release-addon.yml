@@ -32,10 +32,14 @@ jobs:
     - name: Create addon directory structure
       run: |
         mkdir -p addons/whereisnm
+        mkdir -p addons/whereisnm/util
         
         cp Windower4/whereisnm.lua addons/whereisnm/
-        cp Windower4/api.lua addons/whereisnm/
-        cp Windower4/sha2.lua addons/whereisnm/
+        cp Windower4/util/api.lua addons/whereisnm/util/
+        cp Windower4/util/data.lua addons/whereisnm/util/
+        cp Windower4/util/format.lua addons/whereisnm/util/
+        cp Windower4/util/queue.lua addons/whereisnm/util/
+        cp Windower4/util/sha2.lua addons/whereisnm/util/
 
     - name: Create zip file
       run: |
