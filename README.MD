@@ -1,5 +1,15 @@
 # WhereIsNM
 
+![GitHub Downloads](https://img.shields.io/github/downloads/Mandracord/whereisnm-addon/total)
+
+![Latest Release](https://img.shields.io/github/v/release/Mandracord/whereisnm-addon)
+
+![GitHub last commit](https://img.shields.io/github/last-commit/Mandracord/whereisnm-addon)
+
+[![Discord Bot](https://img.shields.io/badge/Discord-Invite%20Bot-5865F2?logo=discord&logoColor=white)](https://whereisnm.com/discord)
+
+
+
 Track roaming Notorious Monsters (NMs) and ??? spawn points in FFXI's Temenos and Apollyon zones. Data is shared across your server with automatic updates and weekly resets.
 
 ## Quick Start
