@@ -1,16 +1,14 @@
 require("socket")
 require("strings") 
 require("ltn12")
-local https = require("socket.http")
---local https = require("ssl.https")
+local https = require("ssl.https")
 local json = require("json")
 local sha = require("util/sha2")
 local formatter = require('util/format')
 res = require('resources')
 files = require('files')
 
-local base_url = "http://localhost:3000"
---local base_url = "https://whereisnm.com"
+local base_url = "https://whereisnm.com"
 local reports_endpoint = base_url .. "/api/v1/reports"
 local tod_endpoint = base_url .. "/api/v1/reports/tod"
 
