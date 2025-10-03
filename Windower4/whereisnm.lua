@@ -1,21 +1,23 @@
 _addon.name = 'WhereIsNM'
 _addon.author = 'Mandracord Team'
-_addon.version = '0.0.7'
+_addon.version = '0.0.8'
 _addon.commands = {'nm','whereisnm'}
 
 --[[
 -------------------------------------------------------------------------------------------------------------
 RELEASE NOTES
-v0.0.1 : First release
-v0.0.2 : Minor updates
-v0.0.3 : Added TOD reporting
-v0.0.4 : Added version checking
-v0.0.5 : Added <t> target support, fixed //nm command to clearly display if a NM was killed XX:XX ago.
-v0.0.6 : Added delete command for own reports (if you need to correct a incorrect report).
-v0.0.7 : Added queue system for batch reporting to eliminate gameplay performance impact.
-         Removed redundant manual report command.
-         Added automatic TOD detection and manual TOD reporting commands.
-         Made addon more modular.
+v0.0.1   * First release
+v0.0.2   * Minor updates
+v0.0.3   * Added TOD reporting
+v0.0.4   * Added version checking
+v0.0.5   * Added <t> target support, fixed //nm command to clearly display if a NM was killed XX:XX ago.
+v0.0.6   * Added delete command for own reports (if you need to correct a incorrect report).
+v0.0.7   * Added queue system for batch reporting to eliminate gameplay performance impact.
+         * Removed redundant manual report command.
+           Added automatic TOD detection and manual TOD reporting commands.
+           Made addon more modular.
+v0.0.8   * Minor bug fixes, added scheduler to not spam the API server based on queue-file. 
+           Added a history feature for debugging.
 ]]
 -------------------------------------------------------------------------------------------------------------
 
