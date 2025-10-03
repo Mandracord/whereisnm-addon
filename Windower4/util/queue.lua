@@ -6,12 +6,55 @@ local formatter = require('util/format')
 local M = {}
 
 local queue_file_path = 'data/pending_reports.lua'
+local history_file_path = 'data/history.lua'
+
 local spawn_queue = {}
+local report_history = {}
 
 local function save_queue()
     local queue_data = files.new(queue_file_path, true)
     local serialized = 'return ' .. T(spawn_queue):tovstring()
     queue_data:write(serialized)
+end
+
+local function save_history()
+    local history_data = files.new(history_file_path, true)
+    local serialized = 'return ' .. T(report_history):tovstring()
+    history_data:write(serialized)
+end
+
+local function load_history()
+    local success, loaded_data = pcall(dofile, windower.addon_path .. history_file_path)
+    if success and type(loaded_data) == 'table' then
+        report_history = loaded_data
+    else
+        report_history = {}
+    end
+end
+
+local function log_history(report, status, status_code)
+    local entry = {
+        type = report.type,
+        area = report.area,
+        tower = report.tower,
+        floor = report.floor,
+        spawn_type = report.spawn_type,
+        mob_name = report.mob_name,
+        job_or_name = report.job_or_name,
+        distance = report.distance,
+        timestamp = report.timestamp,
+        readable_time = os.date('%Y-%m-%d %H:%M:%S', report.timestamp),
+        result = status,
+        status_code = status_code
+    }
+
+    table.insert(report_history, entry)
+
+    while #report_history > 50 do
+        table.remove(report_history, 1)
+    end
+
+    save_history()
 end
 
 function M.load_queue()
@@ -29,6 +72,8 @@ function M.load_queue()
             f:close()
         end
     end
+
+    load_history()
 end
 
 function M.queue_spawn_report(area, tower, floor, spawn_type, mob_name, distance)
@@ -38,7 +83,6 @@ function M.queue_spawn_report(area, tower, floor, spawn_type, mob_name, distance
            queued_report.floor == floor and 
            queued_report.spawn_type == spawn_type then
             if spawn_type == 'question' then return end
-            
             if spawn_type == 'nm' and queued_report.mob_name == mob_name then
                 return
             end
@@ -74,20 +118,33 @@ end
 
 function M.send_queued_reports()
     if #spawn_queue == 0 then return end
-    
+
     windower.add_to_chat(123, string.format('[WhereIsNM] Sending %d queued reports...', #spawn_queue))
-    
-    local sent_count = 0
+
     local now = os.time()
     local max_age_seconds = 24 * 60 * 60
+    local sent_count = 0
 
-    for i = #spawn_queue, 1, -1 do
+    local function send_next(i)
+        if i < 1 or #spawn_queue == 0 then
+            save_queue()
+            if sent_count > 0 then
+                windower.add_to_chat(123, string.format('[WhereIsNM] Successfully sent %d reports', sent_count))
+            end
+            if #spawn_queue > 0 then
+                windower.add_to_chat(123, string.format('[WhereIsNM] %d reports remain queued', #spawn_queue))
+            end
+            return
+        end
+
         local report = spawn_queue[i]
-        local success, status_code = false, nil
 
         if now - report.timestamp > max_age_seconds then
             table.remove(spawn_queue, i)
+            send_next(i - 1)
         else
+            local success, status_code = false, nil
+
             if report.type == "spawn" then
                 success, status_code = api.submit_report(
                     report.area, report.tower, report.floor,
@@ -100,24 +157,22 @@ function M.send_queued_reports()
                 )
             end
 
-            if success then
+            log_history(report, success and "success" or "error", status_code)
+
+            if success or status_code == 409 or status_code == 429 then
                 table.remove(spawn_queue, i)
-                sent_count = sent_count + 1
-            elseif status_code == 409 or status_code == 429 then
-                table.remove(spawn_queue, i)
+                if success then sent_count = sent_count + 1 end
             end
+
+            save_queue()
+
+            coroutine.schedule(function()
+                send_next(i - 1)
+            end, 2)
         end
     end
 
-    save_queue()
-    
-    if sent_count > 0 then
-        windower.add_to_chat(123, string.format('[WhereIsNM] Successfully sent %d reports', sent_count))
-    end
-    
-    if #spawn_queue > 0 then
-        windower.add_to_chat(123, string.format('[WhereIsNM] %d reports remain queued', #spawn_queue))
-    end
+    send_next(#spawn_queue)
 end
 
 function M.get_queue_count()
@@ -127,6 +182,10 @@ end
 function M.clear_queue()
     spawn_queue = {}
     save_queue()
+end
+
+function M.get_history_count()
+    return #report_history
 end
 
 return M
