@@ -40,6 +40,7 @@ defaults.flags.bold = true
 defaults.flags.draggable = true
 defaults.show_displaybox = true
 defaults.auto_send = true
+defaults.display_limit = 20
 
 -------------------------------------------------------------------------------------------------------------
 
@@ -170,7 +171,7 @@ windower.register_event('addon command', function(command, ...)
     local args = L{...}
 
     if not command or command == '' then
-        local reports = api.get_latest_reports(windower.ffxi.get_info().server)
+        local reports = api.get_latest_reports(windower.ffxi.get_info().server, settings.display_limit)
         windower.add_to_chat(123, util_data.format_box_display(reports))
         return
     
@@ -188,7 +189,7 @@ windower.register_event('addon command', function(command, ...)
             auto_refresh_enabled = false
             windower.add_to_chat(123, string.format('[%s] HUD hidden', _addon.name))
         else
-            local reports = api.get_latest_reports(windower.ffxi.get_info().server)
+            local reports = api.get_latest_reports(windower.ffxi.get_info().server, settings.display_limit)
             displaybox.nm_info = util_data.format_box_display(reports)
             displaybox:show()
             auto_refresh_enabled = true

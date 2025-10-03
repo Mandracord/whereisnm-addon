@@ -11,6 +11,7 @@ files = require('files')
 local base_url = "https://whereisnm.com"
 local reports_endpoint = base_url .. "/api/v1/reports"
 local tod_endpoint = base_url .. "/api/v1/reports/tod"
+local debug = false
 
 local M = {}
 
@@ -176,7 +177,7 @@ function M.submit_tod_report(area, tower, floor, enemy_input, job_or_name)
 end
 
 -- Fetch latest reports
-function M.get_latest_reports(server_id)
+function M.get_latest_reports(server_id, limit)
     local player_info = windower.ffxi.get_player()
     local server_info = windower.ffxi.get_info()
 
@@ -186,11 +187,9 @@ function M.get_latest_reports(server_id)
     end
 
     local server_name = res.servers[server_info.server].en
-    local url = base_url .. "/api/v1/reports/recent/" .. server_name
+    local url = base_url .. "/api/v1/reports/recent/" .. server_name .. '?limit='..(limit or 10)
     local token = generate_token(player_info.name, server_info.server)
-
     local headers = { ["Authorization"] = "Bearer " .. token }
-
     local success, response = get_request(url, headers)
 
     if success then
@@ -206,41 +205,56 @@ function format_reports_display(reports, server_name)
     local nm_reports = {}
     local question_reports = {}
 
-    local reports_array = reports:match('"reports":%{"temenos":%[(.-)%]%}')
-    if not reports_array then
-        return "No recent data found for " .. server_name
+    if debug then 
+        windower.add_to_chat(123, "[DEBUG] Raw reports: " .. tostring(reports))
     end
 
-    for report_str in reports_array:gmatch('{[^}]*}') do
-        local displayName = report_str:match('"displayName":"([^"]*)"')
-        local minutes_ago = report_str:match('"minutes_ago":"([^"]*)"')
-        local spawnType = report_str:match('"spawnTypeDisplay":"([^"]*)"')
-        local enemyDisplay = report_str:match('"enemyDisplay":"([^"]*)"')
-        local time_of_death = report_str:match('"time_of_death":"([^"]*)"')
-        
-        if displayName and minutes_ago and spawnType then
-            local time_text = formatter.format_time_ago(tonumber(minutes_ago))
-            local enemy_text = enemyDisplay and (" - " .. enemyDisplay) or ""
-            
-            if time_of_death then
-                time_text = "Killed " .. time_text
-            end
+    local function extract_reports(area_name)
+        local area_block = reports:match('"' .. area_name .. '"%s*:%s*%[(.-)%]%s*[,}]')
+        if not area_block then
+            windower.add_to_chat(123, "[DEBUG] No data found for area: " .. area_name)
+            return
+        end
 
-            local report_line = string.format("%s%s - %s ago\n", displayName, enemy_text, time_text)
+        for report_str in area_block:gmatch('%b{}') do
 
-            if spawnType == "NM" then
-                table.insert(nm_reports, report_line)
-            else
-                table.insert(question_reports, report_line)
+            local displayName = report_str:match('"displayName"%s*:%s*"([^"]*)"')
+            local minutes_ago = report_str:match('"minutes_ago"%s*:%s*"([^"]*)"')
+            local spawnType = report_str:match('"spawnTypeDisplay"%s*:%s*"([^"]*)"')
+            local enemyDisplay = report_str:match('"enemyDisplay"%s*:%s*"([^"]*)"')
+            local time_of_death = report_str:match('"time_of_death"%s*:%s*"([^"]*)"')
+
+            if displayName and minutes_ago and spawnType then
+                local time_text = formatter.format_time_ago(tonumber(minutes_ago))
+                local enemy_text = enemyDisplay and (" - " .. enemyDisplay) or ""
+
+                if time_of_death then
+                    time_text = "Killed " .. time_text
+                end
+
+                local report_line = string.format("%s%s - %s ago\n", displayName, enemy_text, time_text)
+
+                if spawnType == "NM" then
+                    table.insert(nm_reports, report_line)
+                else
+                    table.insert(question_reports, report_line)
+                end
             end
         end
     end
+
+    extract_reports("temenos")
+    extract_reports("apollyon")
 
     if #nm_reports > 0 then
         output = output .. "Reported NM(s) for " .. server_name .. ":\n" .. table.concat(nm_reports)
     end
     if #question_reports > 0 then
         output = output .. "Reported ??? for " .. server_name .. ":\n" .. table.concat(question_reports)
+    end
+
+    if #nm_reports == 0 and #question_reports == 0 then
+        return "No recent data found for " .. server_name
     end
 
     return output
