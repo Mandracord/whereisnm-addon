@@ -4,7 +4,7 @@ _addon.version = '0.0.8'
 _addon.commands = {'nm','whereisnm'}
 
 --[[
--------------------------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------------------------
 RELEASE NOTES
 v0.0.1   * First release
 v0.0.2   * Minor updates
@@ -19,7 +19,7 @@ v0.0.7   * Added queue system for batch reporting to eliminate gameplay performa
 v0.0.8   * Minor bug fixes, added scheduler to not spam the API server based on queue-file. 
            Added a history feature for debugging.
 ]]
--------------------------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------------------------
 
 require('luau')
 texts = require('texts')
