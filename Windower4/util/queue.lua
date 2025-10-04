@@ -104,7 +104,20 @@ function M.queue_spawn_report(area, tower, floor, spawn_type, mob_name, distance
 end
 
 function M.queue_tod_report(area, tower, floor, mob_name, job_or_name)
-    table.insert(spawn_queue, {
+    for _, queued_report in ipairs(spawn_queue) do
+        if queued_report.type == "tod" and
+           queued_report.area == area then
+            if tower and floor and mob_name then
+                if queued_report.tower == tower and 
+                   queued_report.floor == floor and
+                   queued_report.mob_name == mob_name then
+                    return 
+                end
+            end
+        end
+    end
+    
+    table.insert(spawn_queue, 1, {
         type = "tod",
         area = area,
         tower = tower,
@@ -124,12 +137,20 @@ function M.send_queued_reports()
     local now = os.time()
     local max_age_seconds = 24 * 60 * 60
     local sent_count = 0
+    local duplicate_count = 0
+    local failed_count = 0
 
     local function send_next(i)
         if i < 1 or #spawn_queue == 0 then
             save_queue()
             if sent_count > 0 then
                 windower.add_to_chat(123, string.format('[WhereIsNM] Successfully sent %d reports', sent_count))
+            end
+            if duplicate_count > 0 then
+                windower.add_to_chat(123, string.format('[WhereIsNM] %d duplicate reports skipped', duplicate_count))
+            end
+            if failed_count > 0 then
+                windower.add_to_chat(123, string.format('[WhereIsNM] %d reports removed (not found)', failed_count))
             end
             if #spawn_queue > 0 then
                 windower.add_to_chat(123, string.format('[WhereIsNM] %d reports remain queued', #spawn_queue))
@@ -141,6 +162,7 @@ function M.send_queued_reports()
 
         if now - report.timestamp > max_age_seconds then
             table.remove(spawn_queue, i)
+            save_queue()
             send_next(i - 1)
         else
             local success, status_code = false, nil
@@ -153,22 +175,30 @@ function M.send_queued_reports()
             elseif report.type == "tod" then
                 success, status_code = api.submit_tod_report(
                     report.area, report.tower, report.floor,
-                    report.mob_name, report.job_or_name
+                    report.mob_name, report.job_or_name, true
                 )
             end
 
             log_history(report, success and "success" or "error", status_code)
-
-            if success or status_code == 409 or status_code == 429 then
+            if success or status_code == 409 or status_code == 429 or status_code == 404 then
                 table.remove(spawn_queue, i)
-                if success then sent_count = sent_count + 1 end
+                if success then 
+                    sent_count = sent_count + 1
+                elseif status_code == 409 then 
+                    duplicate_count = duplicate_count + 1
+                elseif status_code == 404 then
+                    failed_count = failed_count + 1
+                end
+                save_queue()
+                coroutine.schedule(function()
+                    send_next(i - 1)
+                end, 2)
+            else
+                save_queue()
+                coroutine.schedule(function()
+                    send_next(i - 1)
+                end, 2)
             end
-
-            save_queue()
-
-            coroutine.schedule(function()
-                send_next(i - 1)
-            end, 2)
         end
     end
 

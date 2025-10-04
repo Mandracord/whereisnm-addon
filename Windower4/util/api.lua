@@ -106,7 +106,7 @@ function M.submit_report(area, tower, floor, spawn_type, mob_name)
 end
 
 -- Submit TOD report
-function M.submit_tod_report(area, tower, floor, enemy_input, job_or_name)
+function M.submit_tod_report(area, tower, floor, enemy_input, job_or_name, silent_409)
     local player_info = windower.ffxi.get_player()
     local server_info = windower.ffxi.get_info()
     
@@ -150,7 +150,9 @@ function M.submit_tod_report(area, tower, floor, enemy_input, job_or_name)
         return true, status_code
     elseif status_code == 409 then
         local formatted_area = formatter.format_location_name(area)
-        windower.add_to_chat(123, string.format('[WhereIsNM] TOD has already been reported for %s', formatted_area))
+        if not silent_409 then
+            windower.add_to_chat(123, string.format('[WhereIsNM] TOD has already been reported for %s', formatted_area))
+        end
         return false, status_code
     elseif status_code == 422 then
         local formatted_area = formatter.format_location_name(area)

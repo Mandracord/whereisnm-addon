@@ -5,6 +5,7 @@ formatter = require('util/format')
 
 local M = {}
 local tracked_nm = nil
+local queued_tod_keys = {}
 
 M.limbus_nms = {
     [37] = S{ -- Temenos
@@ -103,6 +104,10 @@ function M.parse_floor_to_api_format(floor_name, zone_id)
     return nil, nil, nil
 end
 
+function M.clear_tod_tracking()
+    queued_tod_keys = {}
+end
+
 function M.check_and_track_tod(current_floor)
     local player = windower.ffxi.get_player()
     local zone_info = windower.ffxi.get_info()
@@ -132,7 +137,8 @@ function M.check_and_track_tod(current_floor)
                     tower = tower,
                     floor = floor,
                     floor_name = current_floor,
-                    tod_reported = false
+                    tod_reported = false,
+                    last_hpp = target.hpp 
                 }
             end
         end
@@ -140,24 +146,29 @@ function M.check_and_track_tod(current_floor)
     
     if tracked_nm and not tracked_nm.tod_reported then
         local mob = windower.ffxi.get_mob_by_id(tracked_nm.id)
+        
+        if mob then
+            tracked_nm.last_hpp = mob.hpp
+        end
 
         local should_report = false
-        if not mob then
+        if not mob and tracked_nm.last_hpp <= 1 then
             should_report = true
-        elseif mob.hpp <= 1 then
+        elseif mob and mob.hpp <= 1 then
             should_report = true
         end
 
         if should_report then
-            local success = api.submit_tod_report(
+            local tod_key = string.format("%s_%s_%d_%s",
                 tracked_nm.area,
                 tracked_nm.tower,
                 tracked_nm.floor,
-                tracked_nm.name,
-                nil
+                tracked_nm.name
             )
-
-            if not success then
+            
+            if not queued_tod_keys[tod_key] then
+                tracked_nm.tod_reported = true
+                
                 queue.queue_tod_report(
                     tracked_nm.area,
                     tracked_nm.tower,
@@ -165,9 +176,12 @@ function M.check_and_track_tod(current_floor)
                     tracked_nm.name,
                     nil
                 )
+                
+                windower.add_to_chat(123, string.format('[WhereIsNM] TOD queued for %s', tracked_nm.name))
+                
+                queued_tod_keys[tod_key] = true
             end
-
-            tracked_nm.tod_reported = true
+            
             tracked_nm = nil
         end
     end

@@ -1,6 +1,6 @@
 _addon.name = 'WhereIsNM'
 _addon.author = 'Mandracord Team'
-_addon.version = '0.0.8'
+_addon.version = '0.0.9-BETA'
 _addon.commands = {'nm','whereisnm'}
 
 --[[
@@ -18,6 +18,7 @@ v0.0.7   * Added queue system for batch reporting to eliminate gameplay performa
            Made addon more modular.
 v0.0.8   * Minor bug fixes, added scheduler to not spam the API server based on queue-file. 
            Added a history feature for debugging.
+v0.0.9   * BETA release for better error handling and queuing for performance for TOD reporting.
 ]]
 --------------------------------------------------------------------------------------------------------------
 
@@ -115,24 +116,27 @@ function findTarget_and_sendReport()
                         local mob_key = string.format("%s_%s_%d_%d", area, tower, floor, mob.id)
                         
                         if not reported_mobs[mob_key] then
-                            queue.queue_spawn_report(area, tower, floor, 'nm', mob.name, distance)
                             local success = api.submit_report(area, tower, floor, 'nm', mob.name)
-                            if not success then
+                            if success then
+                                reported_mobs[mob_key] = true
+                            else
+                                queue.queue_spawn_report(area, tower, floor, 'nm', mob.name, distance)
                                 windower.add_to_chat(123, string.format('[WhereIsNM] Report for NM "%s" has failed. Added to queue for retry. Check log.txt for details.', mob.name))
-
+                                reported_mobs[mob_key] = true
                             end
-                            reported_mobs[mob_key] = true
                         end
                     elseif mob.spawn_type == 2 and mob.name == '???' then
                         local mob_key = string.format("%s_%s_%d_%d", area, tower, floor, mob.id)
                         
                         if not reported_mobs[mob_key] then
-                            queue.queue_spawn_report(area, tower, floor, 'question', nil, distance)
                             local success = api.submit_report(area, tower, floor, 'question', nil)
-                            if not success then
+                            if success then
+                                reported_mobs[mob_key] = true
+                            else
+                                queue.queue_spawn_report(area, tower, floor, 'question', nil, distance)
                                 windower.add_to_chat(123, '[WhereIsNM] Report failed, added to queue for retry. Check log.txt for details.')
+                                reported_mobs[mob_key] = true
                             end
-                            reported_mobs[mob_key] = true
                         end
                     end
                 end
@@ -158,6 +162,7 @@ end)
 
 windower.register_event('zone change', function(new_id, old_id)
     if (old_id == 37 or old_id == 38) and (new_id ~= 37 and new_id ~= 38) then
+        util_data.clear_tod_tracking()
         queue.load_queue()
         coroutine.schedule(queue.send_queued_reports, 2)
     else
