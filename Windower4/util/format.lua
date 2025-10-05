@@ -18,12 +18,18 @@ function M.format_time_ago(minutes)
     end
     
     if minutes < 60 then
-        return string.format("%dm", math.floor(minutes))
+        return string.format("%2dm", math.floor(minutes))
     else
         local hours = math.floor(minutes / 60)
         local mins = math.floor(minutes % 60)
-        return string.format("%dh %dm", hours, mins)
+        return string.format("%2dh %2dm", hours, mins)
     end
+end
+
+function M.format_time_ago_padded(minutes, width)
+    width = width or 10
+    local time_str = M.format_time_ago(minutes)
+    return string.format("%" .. width .. "s", time_str)
 end
 
 function M.format_spawn_type(spawn_type)

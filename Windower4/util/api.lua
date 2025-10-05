@@ -222,18 +222,28 @@ function format_reports_display(reports, server_name)
             local spawnType = report_str:match('"spawnTypeDisplay"%s*:%s*"([^"]*)"')
             local enemyDisplay = report_str:match('"enemyDisplay"%s*:%s*"([^"]*)"')
             local time_of_death = report_str:match('"time_of_death"%s*:%s*"([^"]*)"')
+            local minutes_since_update = report_str:match('"minutes_since_update"%s*:%s*"([^"]*)"')
 
             if displayName and minutes_ago and spawnType then
-                local time_text = formatter.format_time_ago(tonumber(minutes_ago))
                 local enemy_text = enemyDisplay and (" - " .. enemyDisplay) or ""
+                local time_text = ""
 
-                if time_of_death then
-                    time_text = "Killed " .. time_text .. " ago"
+            local cleanOutput = displayName:gsub("^Temenos %- ", ""):gsub("^Apollyon %- ", ""):gsub(" Tower", "")
+            local time_str = ""
+
+            if time_of_death and time_of_death ~= "null" then
+                time_str = "Killed" .. formatter.format_time_ago_padded(tonumber(minutes_ago), 8) .. " ago"
+            else
+                local reported_time = formatter.format_time_ago_padded(tonumber(minutes_ago), 8)
+                if minutes_since_update and tonumber(minutes_since_update) ~= tonumber(minutes_ago) then
+                    local updated_time = formatter.format_time_ago_padded(tonumber(minutes_since_update), 8)
+                    time_str = "Reported" .. reported_time .. " ago | Last seen " .. updated_time .. " ago"
                 else
-                    time_text = time_text .. " ago"
+                    time_str = "Reported" .. reported_time .. " ago"
                 end
+            end
 
-                local report_line = string.format("%s%s - %s\n", displayName, enemy_text, time_text)
+            local report_line = string.format("%-40s   %s\n", cleanOutput .. enemy_text, time_str)
 
                 if spawnType == "NM" then
                     table.insert(nm_table, report_line)
@@ -253,7 +263,7 @@ function format_reports_display(reports, server_name)
             output = output .. "NM Reports:\n" .. table.concat(temenos_nm)
         end
         if #temenos_question > 0 then
-            output = output .. "\n??? Reports:\n" .. table.concat(temenos_question)
+            output = output .. "??? Reports:\n" .. table.concat(temenos_question)
         end
         output = output .. "\n"
     end
@@ -264,7 +274,7 @@ function format_reports_display(reports, server_name)
             output = output .. "NM Reports:\n" .. table.concat(apollyon_nm)
         end
         if #apollyon_question > 0 then
-            output = output .. "\n??? Reports:\n" .. table.concat(apollyon_question)
+            output = output .. "??? Reports:\n" .. table.concat(apollyon_question)
         end
         output = output .. "\n"
     end

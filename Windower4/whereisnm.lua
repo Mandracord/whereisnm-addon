@@ -1,6 +1,6 @@
 _addon.name = 'WhereIsNM'
 _addon.author = 'Mandracord Team'
-_addon.version = '0.0.9-BETA'
+_addon.version = '0.0.9'
 _addon.commands = {'nm','whereisnm'}
 
 --[[
@@ -35,15 +35,21 @@ formatter = require('util/format')
 
 defaults = {}
 defaults.text = T{}
-defaults.text.font = 'Consolas'
-defaults.text.size = 10
-defaults.text.bg_alpha = 100
+defaults.text.bg = {alpha = 70, visible = true}
+defaults.text.flags = {bold = true}
+defaults.text.padding = 5
+defaults.text.text = {
+    font='Consolas', 
+    size= 11,
+    stroke = {width = 1}
+}
 defaults.flags = T{}
 defaults.flags.bold = true
 defaults.flags.draggable = true
 defaults.show_displaybox = true
 defaults.auto_send = true
-defaults.display_limit = 20
+defaults.display_limit = 10
+defaults.debug = false
 
 -------------------------------------------------------------------------------------------------------------
 
@@ -62,7 +68,6 @@ windower.register_event('load','login',function ()
         windower.add_to_chat(123, string.format('[%s] Thank you for using WhereIsNM! Use //nm to get the latest update.', _addon.name))
     end
 end)
-
 
 -------------------------------------------------------------------------------------------------------------
 -- DO NOT EDIT BELOW THIS LINE

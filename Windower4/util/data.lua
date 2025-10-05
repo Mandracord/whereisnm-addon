@@ -194,7 +194,7 @@ function M.format_box_display(reports)
     
     local lines = {}
     for line in reports:gmatch("[^\r\n]+") do
-        if (line:match("^[%s]*[A-Z]") or line:match("^[%s]*%?%?%?")) and not line:match("Reported") then
+        if (line:match("^[%s]*[A-Z]") or line:match("^[%s]*%?%?%?")) and not line:match("^Reported NM") and not line:match("^Reported %?%?%?") then
             line = line:gsub("^%s+", ""):gsub("%s+$", "")
             if #line > 0 then
                 table.insert(lines, line)
