@@ -1,0 +1,4 @@
+*.sh text eol=lf
+*.js text eol=auto
+*.json text eol=auto
+*.sql text eol=lf

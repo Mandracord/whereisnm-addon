@@ -203,23 +203,20 @@ end
 
 -- Format reports for display
 function format_reports_display(reports, server_name)
-    local output = "\n"
-    local nm_reports = {}
-    local question_reports = {}
+    local output = "\n" .. string.rep("=", 50) .. "\n"
+    output = output .. "Latest Reports for " .. server_name .. "\n"
+    output = output .. string.rep("=", 50) .. "\n\n"
+    
+    local temenos_nm = {}
+    local temenos_question = {}
+    local apollyon_nm = {}
+    local apollyon_question = {}
 
-    if debug then 
-        windower.add_to_chat(123, "[DEBUG] Raw reports: " .. tostring(reports))
-    end
-
-    local function extract_reports(area_name)
+    local function extract_reports(area_name, nm_table, question_table)
         local area_block = reports:match('"' .. area_name .. '"%s*:%s*%[(.-)%]%s*[,}]')
-        if not area_block then
-            windower.add_to_chat(123, "[DEBUG] No data found for area: " .. area_name)
-            return
-        end
+        if not area_block then return end
 
         for report_str in area_block:gmatch('%b{}') do
-
             local displayName = report_str:match('"displayName"%s*:%s*"([^"]*)"')
             local minutes_ago = report_str:match('"minutes_ago"%s*:%s*"([^"]*)"')
             local spawnType = report_str:match('"spawnTypeDisplay"%s*:%s*"([^"]*)"')
@@ -231,34 +228,52 @@ function format_reports_display(reports, server_name)
                 local enemy_text = enemyDisplay and (" - " .. enemyDisplay) or ""
 
                 if time_of_death then
-                    time_text = "Killed " .. time_text
+                    time_text = "Killed " .. time_text .. " ago"
+                else
+                    time_text = time_text .. " ago"
                 end
 
-                local report_line = string.format("%s%s - %s ago\n", displayName, enemy_text, time_text)
+                local report_line = string.format("%s%s - %s\n", displayName, enemy_text, time_text)
 
                 if spawnType == "NM" then
-                    table.insert(nm_reports, report_line)
+                    table.insert(nm_table, report_line)
                 else
-                    table.insert(question_reports, report_line)
+                    table.insert(question_table, report_line)
                 end
             end
         end
     end
 
-    extract_reports("temenos")
-    extract_reports("apollyon")
+    extract_reports("temenos", temenos_nm, temenos_question)
+    extract_reports("apollyon", apollyon_nm, apollyon_question)
 
-    if #nm_reports > 0 then
-        output = output .. "Reported NM(s) for " .. server_name .. ":\n" .. table.concat(nm_reports)
-    end
-    if #question_reports > 0 then
-        output = output .. "Reported ??? for " .. server_name .. ":\n" .. table.concat(question_reports)
+    if #temenos_nm > 0 or #temenos_question > 0 then
+        output = output .. "TEMENOS:\n"
+        if #temenos_nm > 0 then
+            output = output .. "NM Reports:\n" .. table.concat(temenos_nm)
+        end
+        if #temenos_question > 0 then
+            output = output .. "\n??? Reports:\n" .. table.concat(temenos_question)
+        end
+        output = output .. "\n"
     end
 
-    if #nm_reports == 0 and #question_reports == 0 then
+    if #apollyon_nm > 0 or #apollyon_question > 0 then
+        output = output .. "APOLLYON:\n"
+        if #apollyon_nm > 0 then
+            output = output .. "NM Reports:\n" .. table.concat(apollyon_nm)
+        end
+        if #apollyon_question > 0 then
+            output = output .. "\n??? Reports:\n" .. table.concat(apollyon_question)
+        end
+        output = output .. "\n"
+    end
+
+    if #temenos_nm == 0 and #temenos_question == 0 and #apollyon_nm == 0 and #apollyon_question == 0 then
         return "No recent data found for " .. server_name
     end
 
+    output = output .. string.rep("=", 50)
     return output
 end
 
