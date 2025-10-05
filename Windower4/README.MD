@@ -27,7 +27,7 @@ See the [complete job/NM cheatcheat](https://whereisnm.com/documentation#cheatsh
 
 ## Requirements
 
-- Windower 4 or ~~Ashita~~ (coming soon)
+- Windower 4 or ~~Ashita~~ (coming soon) 
 
 ## Links
 
