@@ -34,7 +34,3 @@ See the [complete job/NM cheatcheat](https://whereisnm.com/documentation#cheatsh
 - [Full Documentation](https://whereisnm.com/documentation) - Complete guides and tables
 - [Website](https://whereisnm.com)
 - [Report Issues](https://github.com/Mandracord/whereisnm-addon/issues)
-
-## License
-
-See LICENSE file for details.
