@@ -1,6 +1,6 @@
 _addon.name = 'WhereIsNM'
 _addon.author = 'Mandracord Team'
-_addon.version = '0.0.10'
+_addon.version = '0.0.10-BETA'
 _addon.commands = {'nm','whereisnm'}
 
 --[[
