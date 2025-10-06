@@ -1,24 +1,31 @@
 _addon.name = 'WhereIsNM'
 _addon.author = 'Mandracord Team'
-_addon.version = '0.0.9'
+_addon.version = '0.0.10'
 _addon.commands = {'nm','whereisnm'}
 
 --[[
 --------------------------------------------------------------------------------------------------------------
-RELEASE NOTES
+RELEASE NOTES 
 v0.0.1   * First release
 v0.0.2   * Minor updates
 v0.0.3   * Added TOD reporting
 v0.0.4   * Added version checking
 v0.0.5   * Added <t> target support, fixed //nm command to clearly display if a NM was killed XX:XX ago.
 v0.0.6   * Added delete command for own reports (if you need to correct a incorrect report).
+
 v0.0.7   * Added queue system for batch reporting to eliminate gameplay performance impact.
-         * Removed redundant manual report command.
+           Removed redundant manual report command.
            Added automatic TOD detection and manual TOD reporting commands.
            Made addon more modular.
+
 v0.0.8   * Minor bug fixes, added scheduler to not spam the API server based on queue-file. 
            Added a history feature for debugging.
-v0.0.9   * BETA release for better error handling and queuing for performance for TOD reporting.
+
+v0.0.9   * Bugfixes to TOD reporting
+           Updated HUD formatting to have a consistent layout
+           Fixed default settings
+v0.0.10  * Fixes to floor detection service to combat false reporting. 
+           Future release notes will be at https://whereisnm.com/release-notes
 ]]
 --------------------------------------------------------------------------------------------------------------
 
@@ -81,27 +88,32 @@ function check_addon()
 end
 
 function check_current_floor()
+    floor_check_done = false
     local zone_info = windower.ffxi.get_info()
+
     if not zone_info or (zone_info.zone ~= 37 and zone_info.zone ~= 38) then
         current_floor = nil
         return
     end
-    
+
     local player_info = windower.ffxi.get_player()
     if not player_info then return end
-    
+
     local player_mob = windower.ffxi.get_mob_by_index(player_info.index)
     if not player_mob then return end
-    
+
     local floor_name = util_data.identify_floor(player_mob.x, player_mob.y, player_mob.z, zone_info.zone)
-    
     if floor_name ~= current_floor then
         current_floor = floor_name
     end
+
+    floor_check_done = true
 end
 
+
+
 function findTarget_and_sendReport()
-    if not current_floor then return end
+    if not current_floor or not floor_check_done then return end
     local zone_info = windower.ffxi.get_info()
     local zone_id = zone_info.zone
     
@@ -161,6 +173,9 @@ windower.register_event('outgoing chunk', function(id, data)
         zoning_in_progress = false
         coroutine.schedule(function()
             check_current_floor()
+            queue.load_queue()
+            queue.send_queued_reports()
+            end
         end, 0.5)
     end
 end)
@@ -269,5 +284,5 @@ function auto_send_loop()
     end
 end
 
-auto_send_loop:loop(2)
+auto_send_loop:loop(2.2)
 tod_monitor_loop:loop(1)
