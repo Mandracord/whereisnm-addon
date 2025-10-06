@@ -175,7 +175,6 @@ windower.register_event('outgoing chunk', function(id, data)
             check_current_floor()
             queue.load_queue()
             queue.send_queued_reports()
-            end
         end, 0.5)
     end
 end)
