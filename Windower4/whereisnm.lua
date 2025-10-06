@@ -25,6 +25,7 @@ v0.0.9   * Bugfixes to TOD reporting
            Updated HUD formatting to have a consistent layout
            Fixed default settings
 v0.0.10  * Fixes to floor detection service to combat false reporting. 
+           Some refactoring 
            Future release notes will be at https://whereisnm.com/release-notes
 ]]
 --------------------------------------------------------------------------------------------------------------
@@ -37,6 +38,8 @@ api = require('util/api')
 util_data = require('util/data')
 queue = require('util/queue')
 formatter = require('util/format')
+findtarget = require('util/findtarget')
+commands = require('util/commands')
 
 -------------------------------------------------------------------------------------------------------------
 
@@ -57,6 +60,7 @@ defaults.show_displaybox = true
 defaults.auto_send = true
 defaults.display_limit = 10
 defaults.debug = false
+defaults.send_report_between_floors = true
 
 -------------------------------------------------------------------------------------------------------------
 
@@ -69,16 +73,16 @@ local zoning_in_progress = false
 local auto_send = settings.auto_send
 local reported_mobs = {}
 
+-------------------------------------------------------------------------------------------------------------
+-- DO NOT EDIT BELOW THIS LINE
+-------------------------------------------------------------------------------------------------------------
+
 windower.register_event('load','login',function ()
     check_addon()
     if windower.ffxi.get_info().logged_in then
         windower.add_to_chat(123, string.format('[%s] Thank you for using WhereIsNM! Use //nm to get the latest update.', _addon.name))
     end
 end)
-
--------------------------------------------------------------------------------------------------------------
--- DO NOT EDIT BELOW THIS LINE
--------------------------------------------------------------------------------------------------------------
 
 function check_addon()
     local result = api.check_version(_addon.version)
@@ -110,58 +114,6 @@ function check_current_floor()
     floor_check_done = true
 end
 
-
-
-function findTarget_and_sendReport()
-    if not current_floor or not floor_check_done then return end
-    local zone_info = windower.ffxi.get_info()
-    local zone_id = zone_info.zone
-    
-    if zone_id ~= 37 and zone_id ~= 38 then return end
-    
-    local mobs = windower.ffxi.get_mob_array()
-    local max_distance = 50
-    
-    for i, mob in pairs(mobs) do
-        if mob.valid_target then
-            local distance = mob.distance and math.floor(mob.distance:sqrt() * 100) / 100 or 0
-            
-            if distance > 0 and distance <= max_distance then
-                local area, tower, floor = util_data.parse_floor_to_api_format(current_floor, zone_id)
-                if area and tower and floor then
-                    if util_data.limbus_nms[zone_id]:contains(mob.name) then
-                        local mob_key = string.format("%s_%s_%d_%d", area, tower, floor, mob.id)
-                        
-                        if not reported_mobs[mob_key] then
-                            local success = api.submit_report(area, tower, floor, 'nm', mob.name)
-                            if success then
-                                reported_mobs[mob_key] = true
-                            else
-                                queue.queue_spawn_report(area, tower, floor, 'nm', mob.name, distance)
-                                windower.add_to_chat(123, string.format('[WhereIsNM] Report for NM "%s" has failed. Added to queue for retry. Check log.txt for details.', mob.name))
-                                reported_mobs[mob_key] = true
-                            end
-                        end
-                    elseif mob.spawn_type == 2 and mob.name == '???' then
-                        local mob_key = string.format("%s_%s_%d_%d", area, tower, floor, mob.id)
-                        
-                        if not reported_mobs[mob_key] then
-                            local success = api.submit_report(area, tower, floor, 'question', nil)
-                            if success then
-                                reported_mobs[mob_key] = true
-                            else
-                                queue.queue_spawn_report(area, tower, floor, 'question', nil, distance)
-                                windower.add_to_chat(123, '[WhereIsNM] Report failed, added to queue for retry. Check log.txt for details.')
-                                reported_mobs[mob_key] = true
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end
-end
-
 function tod_monitor_loop()
     util_data.check_and_track_tod(current_floor)
 end
@@ -172,9 +124,14 @@ windower.register_event('outgoing chunk', function(id, data)
     elseif id == 0x05B and zoning_in_progress then
         zoning_in_progress = false
         coroutine.schedule(function()
+            findtarget.floor_transition_in_progress = true
             check_current_floor()
-            queue.load_queue()
-            queue.send_queued_reports()
+            if settings.send_report_between_floors then 
+                queue.load_queue()
+                queue.send_queued_reports()
+                reported_mobs = {}
+            end
+            findtarget.floor_transition_in_progress = false
         end, 0.5)
     end
 end)
@@ -193,94 +150,12 @@ windower.register_event('zone change', function(new_id, old_id)
 end)
 
 windower.register_event('addon command', function(command, ...)
-    command = command and command:lower()
     local args = L{...}
-
-    if not command or command == '' then
-        local reports = api.get_latest_reports(windower.ffxi.get_info().server, settings.display_limit)
-        windower.add_to_chat(123, util_data.format_box_display(reports))
-        return
-    
-    elseif command == 'send' then
-        auto_send = not auto_send
-        settings.auto_send = auto_send
-        settings:save()
-        local status = auto_send and 'enabled' or 'disabled'
-        windower.add_to_chat(123, string.format('[%s] reporting %s', _addon.name, status))
-        return
-
-    elseif command == 'hud' then
-        if displaybox:visible() then
-            displaybox:hide()
-            auto_refresh_enabled = false
-            windower.add_to_chat(123, string.format('[%s] HUD hidden', _addon.name))
-        else
-            local reports = api.get_latest_reports(windower.ffxi.get_info().server, settings.display_limit)
-            displaybox.nm_info = util_data.format_box_display(reports)
-            displaybox:show()
-            auto_refresh_enabled = true
-            windower.add_to_chat(123, string.format('[%s] HUD visible', _addon.name))
-        end
-        return
-
-    elseif command == 'tod' then
-        local zone_info = windower.ffxi.get_info()
-        local zone_id = zone_info.zone
-        local in_limbus = (zone_id == 37 or zone_id == 38)
-        
-        local zone_param, job_or_name
-        
-        if in_limbus then
-            if #args == 0 then
-                windower.add_to_chat(123, '[WhereIsNM] Usage: //nm tod <job_or_name>')
-                return
-            end
-            job_or_name = args:concat(' ')
-            job_or_name = windower.convert_auto_trans(job_or_name)
-            
-            if zone_id == 37 then
-                zone_param = 'temenos'
-            elseif zone_id == 38 then
-                zone_param = 'apollyon'
-            end
-        else
-            if #args < 2 then
-                windower.add_to_chat(123, '[WhereIsNM] Usage: //nm tod <zone> <job_or_name>')
-                return
-            end
-            zone_param = args[1]:lower()
-            zone_param = windower.convert_auto_trans(zone_param):lower()
-            table.remove(args, 1)
-            job_or_name = args:concat(' ')
-            job_or_name = windower.convert_auto_trans(job_or_name)
-            
-            if zone_param ~= 'temenos' and zone_param ~= 'apollyon' then
-                windower.add_to_chat(123, string.format('[WhereIsNM] Invalid zone. Use "%s" or "%s"', 
-                    formatter.format_location_name('temenos'), formatter.format_location_name('apollyon')))
-                return
-            end
-        end
-        
-        api.submit_tod_report(zone_param, nil, nil, nil, job_or_name)
-        return
-
-    elseif command == 'help' then 
-        windower.add_to_chat(180, string.format('[%s] Commands:', _addon.name))
-        windower.add_to_chat(180, '//nm send - Enable/disable auto-reporting')
-        windower.add_to_chat(180, '//nm hud - Toggle HUD display')
-        windower.add_to_chat(180, '//nm tod <job_or_name> - Report TOD (in Limbus)')
-        windower.add_to_chat(180, '//nm tod <zone> <job_or_name> - Report TOD (outside Limbus)')
-        return
-
-    else
-        windower.add_to_chat(123, string.format('[%s] Unknown command. Use //nm help', _addon.name))
-    end
+    commands.handle_addon_command(command, args, displaybox, settings)
 end)
 
 function auto_send_loop()
-    if auto_send then
-        findTarget_and_sendReport()
-    end
+    findtarget.identifyTargets(current_floor, reported_mobs, auto_send)
 end
 
 auto_send_loop:loop(2.2)
