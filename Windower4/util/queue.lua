@@ -1,94 +1,97 @@
-require('luau')
 local files = require('files')
-local api = require('util/api')
-local formatter = require('util/format')
+local settingsFile = require('util.settings')
 
 local M = {}
 
-local queue_file_path = 'data/pending_reports.lua'
-local history_file_path = 'data/history.lua'
+local spawn_queue_file_path = 'data/queue.lua'
+local tod_queue_file_path = 'data/tod_queue.lua'
+local debug_file_path = 'data/debug.txt'
 
 local spawn_queue = {}
-local report_history = {}
+local tod_queue = {}
+local api_client
 
-local function save_queue()
-    local queue_data = files.new(queue_file_path, true)
-    local serialized = 'return ' .. T(spawn_queue):tovstring()
-    queue_data:write(serialized)
+local function current_settings()
+    return settingsFile.get()
 end
 
-local function save_history()
-    local history_data = files.new(history_file_path, true)
-    local serialized = 'return ' .. T(report_history):tovstring()
-    history_data:write(serialized)
+local function debug_enabled()
+    local settings = current_settings()
+    return settings and settings.debug
 end
 
-local function load_history()
-    local success, loaded_data = pcall(dofile, windower.addon_path .. history_file_path)
-    if success and type(loaded_data) == 'table' then
-        report_history = loaded_data
-    else
-        report_history = {}
-    end
-end
-
-local function log_history(report, status, status_code)
-    local entry = {
-        type = report.type,
-        area = report.area,
-        tower = report.tower,
-        floor = report.floor,
-        spawn_type = report.spawn_type,
-        mob_name = report.mob_name,
-        job_or_name = report.job_or_name,
-        distance = report.distance,
-        timestamp = report.timestamp,
-        readable_time = os.date('%Y-%m-%d %H:%M:%S', report.timestamp),
-        result = status,
-        status_code = status_code
-    }
-
-    table.insert(report_history, entry)
-
-    while #report_history > 50 do
-        table.remove(report_history, 1)
+local function log_queue_debug(message)
+    if not debug_enabled() then
+        return
     end
 
-    save_history()
+    local log_file = files.new(debug_file_path, true)
+    local timestamp = os.date('%Y-%m-%d %H:%M:%S')
+    log_file:append(string.format('[%s] QUEUE | %s\n', timestamp, message))
+end
+
+local function save_queue_to_file(queue, file_path)
+    local queue_file = files.new(file_path, true)
+    local serialized_entries = {}
+
+    for i, entry in ipairs(queue) do
+        local lines = {'    [' .. i .. ']={'}
+        for k, v in pairs(entry) do
+            if type(v) == 'string' then
+                table.insert(lines, string.format('        ["%s"]=%q,', k, v))
+            else
+                table.insert(lines, string.format('        ["%s"]=%s,', k, tostring(v)))
+            end
+        end
+        table.insert(lines, '    }')
+        table.insert(serialized_entries, table.concat(lines, '\n'))
+    end
+
+    queue_file:write("return {\n" .. table.concat(serialized_entries, ",\n") .. "\n}")
+end
+
+local function save_spawn_queue()
+    save_queue_to_file(spawn_queue, spawn_queue_file_path)
+end
+
+local function save_tod_queue()
+    save_queue_to_file(tod_queue, tod_queue_file_path)
+end
+
+local function load_queue_from_file(file_path)
+    local success, data = pcall(dofile, windower.addon_path .. file_path)
+    if success and type(data) == 'table' then
+        return data
+    end
+    return {}
 end
 
 function M.load_queue()
-    local success, loaded_data = pcall(dofile, windower.addon_path .. queue_file_path)
-    if success and type(loaded_data) == 'table' then
-        spawn_queue = loaded_data
-        if #spawn_queue > 0 then
-            windower.add_to_chat(123, string.format('[WhereIsNM] Loaded %d pending reports', #spawn_queue))
-        end
-    else
-        spawn_queue = {}
-        local f = io.open(windower.addon_path .. queue_file_path, 'w')
-        if f then
-            f:write('return {}')
-            f:close()
-        end
-    end
+    spawn_queue = load_queue_from_file(spawn_queue_file_path)
+    tod_queue = load_queue_from_file(tod_queue_file_path)
 
-    load_history()
+    if debug_enabled() then
+        windower.add_to_chat(123, string.format('[Queue] Loaded %d spawn and %d TOD reports', #spawn_queue, #tod_queue))
+        log_queue_debug(string.format('Loaded queues: %d spawn, %d TOD', #spawn_queue, #tod_queue))
+    end
 end
 
-function M.queue_spawn_report(area, tower, floor, spawn_type, mob_name, distance)
-    for _, queued_report in ipairs(spawn_queue) do
-        if queued_report.area == area and 
-           queued_report.tower == tower and 
-           queued_report.floor == floor and 
-           queued_report.spawn_type == spawn_type then
-            if spawn_type == 'question' then return end
-            if spawn_type == 'nm' and queued_report.mob_name == mob_name then
+function M.set_api(api)
+    api_client = api
+end
+
+function M.queue_spawn_report(area, tower, floor, spawn_type, mob_name)
+    for _, entry in ipairs(spawn_queue) do
+        if entry.area == area and entry.tower == tower and entry.floor == floor and entry.spawn_type == spawn_type then
+            if spawn_type == 'nm' and entry.mob_name == mob_name then
+                return
+            end
+            if spawn_type == 'question' then
                 return
             end
         end
     end
-    
+
     table.insert(spawn_queue, {
         type = "spawn",
         area = area,
@@ -96,126 +99,161 @@ function M.queue_spawn_report(area, tower, floor, spawn_type, mob_name, distance
         floor = floor,
         spawn_type = spawn_type,
         mob_name = mob_name,
-        distance = distance,
-        timestamp = os.time()
+        timestamp = os.time(),
     })
-    
-    save_queue()
+
+    log_queue_debug(string.format('SPAWN QUEUED: %s @ %s %s F%d (Total: %d)', mob_name or '???', area, tower, floor,
+        #spawn_queue))
+    save_spawn_queue()
 end
 
 function M.queue_tod_report(area, tower, floor, mob_name, job_or_name)
-    for _, queued_report in ipairs(spawn_queue) do
-        if queued_report.type == "tod" and
-           queued_report.area == area then
-            if tower and floor and mob_name then
-                if queued_report.tower == tower and 
-                   queued_report.floor == floor and
-                   queued_report.mob_name == mob_name then
-                    return 
-                end
-            end
+    for _, entry in ipairs(tod_queue) do
+        if entry.area == area and entry.tower == tower and entry.floor == floor and entry.mob_name == mob_name then
+            return
         end
     end
-    
-    table.insert(spawn_queue, 1, {
+
+    table.insert(tod_queue, {
         type = "tod",
         area = area,
         tower = tower,
         floor = floor,
         mob_name = mob_name,
         job_or_name = job_or_name,
-        timestamp = os.time()
+        timestamp = os.time(),
     })
-    save_queue()
+
+    log_queue_debug(string.format('TOD QUEUED: %s @ %s %s F%d (Total: %d)', mob_name or 'unknown', area, tower or '?',
+        floor or 0, #tod_queue))
+    save_tod_queue()
 end
 
-function M.send_queued_reports()
-    if #spawn_queue == 0 then return end
+local function submit_spawn_reports(opts, announce, errors)
+    local spawn_sent = 0
+    local spawn_failed = 0
 
-    windower.add_to_chat(123, string.format('[WhereIsNM] Sending %d queued reports...', #spawn_queue))
+    for index = #spawn_queue, 1, -1 do
+        local entry = spawn_queue[index]
+        local ok, status_code, response_text = api_client:submit_spawn_report({
+            area = entry.area,
+            tower = entry.tower,
+            floor = entry.floor,
+            spawn_type = entry.spawn_type,
+            mob_name = entry.mob_name,
+            silent = not announce,
+        })
 
-    local now = os.time()
-    local max_age_seconds = 24 * 60 * 60
-    local sent_count = 0
-    local duplicate_count = 0
-    local failed_count = 0
-
-    local function send_next(i)
-        if i < 1 or #spawn_queue == 0 then
-            save_queue()
-            if sent_count > 0 then
-                windower.add_to_chat(123, string.format('[WhereIsNM] Successfully sent %d reports', sent_count))
-            end
-            if duplicate_count > 0 then
-                windower.add_to_chat(123, string.format('[WhereIsNM] %d duplicate reports skipped', duplicate_count))
-            end
-            if failed_count > 0 then
-                windower.add_to_chat(123, string.format('[WhereIsNM] %d reports removed (not found)', failed_count))
-            end
-            if #spawn_queue > 0 then
-                windower.add_to_chat(123, string.format('[WhereIsNM] %d reports remain queued', #spawn_queue))
-            end
-            return
-        end
-
-        local report = spawn_queue[i]
-
-        if now - report.timestamp > max_age_seconds then
-            table.remove(spawn_queue, i)
-            save_queue()
-            send_next(i - 1)
+        if ok then
+            table.remove(spawn_queue, index)
+            spawn_sent = spawn_sent + 1
         else
-            local success, status_code = false, nil
-
-            if report.type == "spawn" then
-                success, status_code = api.submit_report(
-                    report.area, report.tower, report.floor,
-                    report.spawn_type, report.mob_name
-                )
-            elseif report.type == "tod" then
-                success, status_code = api.submit_tod_report(
-                    report.area, report.tower, report.floor,
-                    report.mob_name, report.job_or_name, true
-                )
-            end
-
-            log_history(report, success and "success" or "error", status_code)
-            if success or status_code == 409 or status_code == 429 or status_code == 404 then
-                table.remove(spawn_queue, i)
-                if success then 
-                    sent_count = sent_count + 1
-                elseif status_code == 409 then 
-                    duplicate_count = duplicate_count + 1
-                elseif status_code == 404 then
-                    failed_count = failed_count + 1
-                end
-                save_queue()
-                coroutine.schedule(function()
-                    send_next(i - 1)
-                end, 2)
-            else
-                save_queue()
-                coroutine.schedule(function()
-                    send_next(i - 1)
-                end, 2)
-            end
+            spawn_failed = spawn_failed + 1
+            errors[#errors + 1] = {
+                type = 'spawn',
+                entry = entry,
+                status = status_code,
+                response = response_text,
+            }
         end
     end
 
-    send_next(#spawn_queue)
+    if spawn_sent > 0 then
+        save_spawn_queue()
+    end
+
+    return spawn_sent, spawn_failed
 end
 
-function M.get_queue_count()
+local function submit_tod_reports(opts, announce, errors)
+    local tod_sent = 0
+    local tod_failed = 0
+
+    for index = #tod_queue, 1, -1 do
+        local entry = tod_queue[index]
+        local ok, status_code, response_text = api_client:submit_tod_report({
+            area = entry.area,
+            tower = entry.tower,
+            floor = entry.floor,
+            enemy_input = entry.mob_name,
+            job_or_name = entry.job_or_name,
+            silent = not announce,
+            silent_409 = not announce,
+        })
+
+        if ok then
+            table.remove(tod_queue, index)
+            tod_sent = tod_sent + 1
+        else
+            tod_failed = tod_failed + 1
+            errors[#errors + 1] = {
+                type = 'tod',
+                entry = entry,
+                status = status_code,
+                response = response_text,
+            }
+        end
+    end
+
+    if tod_sent > 0 then
+        save_tod_queue()
+    end
+
+    return tod_sent, tod_failed
+end
+
+function M.send_queued_reports(opts)
+    opts = opts or {}
+
+    if not api_client then
+        log_queue_debug('send_queued_reports skipped: API client not configured')
+        return {
+            spawn_sent = 0,
+            spawn_failed = #spawn_queue,
+            tod_sent = 0,
+            tod_failed = #tod_queue,
+            errors = {'api_not_configured'},
+        }
+    end
+
+    local announce = opts.announce == true
+    local errors = {}
+
+    local spawn_sent, spawn_failed = submit_spawn_reports(opts, announce, errors)
+    local tod_sent, tod_failed = submit_tod_reports(opts, announce, errors)
+
+    log_queue_debug(string.format('Sent queued reports: %d spawn sent, %d spawn failed; %d TOD sent, %d TOD failed',
+        spawn_sent, spawn_failed, tod_sent, tod_failed))
+
+    if announce then
+        local total_sent = spawn_sent + tod_sent
+        local total_failed = spawn_failed + tod_failed
+
+        if total_sent > 0 then
+            windower.add_to_chat(123, string.format('[WhereIsNM] Sent %d queued reports.', total_sent))
+        end
+
+        if total_failed > 0 then
+            windower.add_to_chat(123,
+                string.format('[WhereIsNM] %d queued reports could not be sent; they remain queued.', total_failed))
+        end
+    end
+
+    return {
+        spawn_sent = spawn_sent,
+        spawn_failed = spawn_failed,
+        tod_sent = tod_sent,
+        tod_failed = tod_failed,
+        errors = errors,
+    }
+end
+
+function M.get_spawn_queue_count()
     return #spawn_queue
 end
 
-function M.clear_queue()
-    spawn_queue = {}
-    save_queue()
-end
-
-function M.get_history_count()
-    return #report_history
+function M.get_tod_queue_count()
+    return #tod_queue
 end
 
 return M

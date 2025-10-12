@@ -1,89 +1,154 @@
 require('luau')
-require('strings')
-local api = require('util/api')
-local util_data = require('util/data')
-local formatter = require('util/format')
 
 local M = {}
 
-function M.handle_addon_command(command, args, displaybox, settings)
+function M.handle_addon_command(command, args, deps)
     command = command and command:lower()
 
-    if not command or command == '' then
-        local reports = api.get_latest_reports(windower.ffxi.get_info().server, settings.display_limit)
-        windower.add_to_chat(123, util_data.format_box_display(reports))
-        return
+    local logger = deps.logger
+    local scanner = deps.scanner
+    local queue = deps.queue
+    local api = deps.api
+    local settings = deps.settings
+    local settings_file = deps.settings_file
+    local handle_pending_reports = deps.handle_pending_reports
+    local debug_enabled = deps.debug_enabled or function() return false end
+    local displaybox = deps.displaybox
 
-    elseif command == 'send' then
-        settings.auto_send = not settings.auto_send
-        settings:save()
-        local status = settings.auto_send and 'enabled' or 'disabled'
-        windower.add_to_chat(123, string.format('[WhereIsNM] reporting %s', status))
+    if command == 'send' then
+        local previous = settings.send
+        settings.send = not settings.send
+        settings_file.save(settings)
+        local status = settings.send and 'Enabled' or 'Disabled'
+        local status_message
+        if settings.send then
+            status_message = string.format('[WhereIsNM] Sending Limbus data: %s. Thank you for contributing!', status)
+        else
+            status_message = string.format('[WhereIsNM] Sending Limbus data: %s.', status)
+        end
+        windower.add_to_chat(123, status_message)
+
+        if settings.send and not previous then
+            queue.load_queue()
+            handle_pending_reports()
+            scanner.trigger_scan()
+        end
+
         return
+    end
+
+    if not command or command == '' then
+        if api then
+            local limit = (settings and settings.display_limit) or 10
+            local report_text = api:get_latest_reports(nil, limit)
+
+            if displaybox then
+                displaybox.nm_info = report_text
+                if settings and settings.hud and displaybox.show then
+                    displaybox:show()
+                elseif settings and not settings.hud and displaybox.hide then
+                    displaybox:hide()
+                end
+            end
+
+            local hud_enabled = settings and settings.hud and displaybox ~= nil
+            if not hud_enabled then
+                for line in report_text:gmatch('[^\r\n]+') do
+                    windower.add_to_chat(123, line)
+                end
+            end
+        end
+
+        return
+        
+    elseif command == 'submit' then
+        local cmd = args[1] and args[1]:lower()
+        
+        if not cmd then 
+            windower.add_to_chat(123, '[WhereIsNM] Unknown command. Use //nm help')
+            return
+        end
+        
+        local function normalize_state(flag, default_value)
+            if flag == nil then
+                return default_value
+            end
+            return flag
+        end
+
+        if cmd == 'floor' then
+            local action = args[2] and args[2]:lower()
+            local current = normalize_state(settings.submit_on_floor_change, true)
+            local new_state
+            if action == 'on' or action == 'enable' or action == 'true' then
+                new_state = true
+            elseif action == 'off' or action == 'disable' or action == 'false' then
+                new_state = false
+            else
+                new_state = not current
+            end
+
+            settings.submit_on_floor_change = new_state
+            if settings_file then settings_file.save(settings) end
+
+            local state_text = new_state and 'Enabled' or 'Disabled'
+            windower.add_to_chat(123,
+                string.format('[WhereIsNM] Submit on floor change: %s.', state_text))
+            if debug_enabled() then
+                logger:log(string.format('submit_on_floor_change set to %s', tostring(new_state)))
+            end
+            return
+        end
 
     elseif command == 'hud' then
-        if displaybox:visible() then
-            displaybox:hide()
-            windower.add_to_chat(123, string.format('[WhereIsNM] HUD hidden', _addon.name))
-        else
-            local reports = api.get_latest_reports(windower.ffxi.get_info().server, settings.display_limit)
-            displaybox.nm_info = util_data.format_box_display(reports)
-            displaybox:show()
-            windower.add_to_chat(123, string.format('[WhereIsNM] HUD visible', _addon.name))
+        if not settings then
+            windower.add_to_chat(123, '[WhereIsNM] HUD settings unavailable.')
+            return
         end
-        return
 
-    elseif command == 'tod' then
-        local zone_info = windower.ffxi.get_info()
-        local zone_id = zone_info.zone
-        local in_limbus = (zone_id == 37 or zone_id == 38)
-
-        local zone_param, job_or_name
-
-        if in_limbus then
-            if #args == 0 then
-                windower.add_to_chat(123, '[WhereIsNM] Usage: //nm tod <job_or_name>')
-                return
-            end
-            job_or_name = args:concat(' ')
-            job_or_name = windower.convert_auto_trans(job_or_name)
-
-            if zone_id == 37 then
-                zone_param = 'temenos'
-            elseif zone_id == 38 then
-                zone_param = 'apollyon'
-            end
+        local action = args[1] and args[1]:lower()
+        if action == 'show' or action == 'on' then
+            settings.hud = true
+        elseif action == 'hide' or action == 'off' then
+            settings.hud = false
         else
-            if #args < 2 then
-                windower.add_to_chat(123, '[WhereIsNM] Usage: //nm tod <zone> <job_or_name>')
-                return
-            end
-            zone_param = args[1]:lower()
-            zone_param = windower.convert_auto_trans(zone_param):lower()
-            table.remove(args, 1)
-            job_or_name = args:concat(' ')
-            job_or_name = windower.convert_auto_trans(job_or_name)
+            settings.hud = not settings.hud
+        end
 
-            if zone_param ~= 'temenos' and zone_param ~= 'apollyon' then
-                windower.add_to_chat(123, string.format('[WhereIsNM] Invalid zone. Use "%s" or "%s"',
-                    formatter.format_location_name('temenos'), formatter.format_location_name('apollyon')))
-                return
+        if settings_file then settings_file.save(settings) end
+
+        if displaybox then
+            if settings.hud and displaybox.show then
+                if api then
+                    local limit = (settings and settings.display_limit) or 10
+                    local report_text = api:get_latest_reports(nil, limit)
+                    if report_text then
+                        displaybox.nm_info = report_text
+                    end
+                end
+                displaybox:show()
+            elseif not settings.hud and displaybox.hide then
+                displaybox:hide()
             end
         end
 
-        api.submit_tod_report(zone_param, nil, nil, nil, job_or_name)
+        local state_text = settings.hud and 'Enabled' or 'Disabled'
+        windower.add_to_chat(123, string.format('[WhereIsNM] HUD %s.', state_text))
         return
 
     elseif command == 'help' then
-        windower.add_to_chat(180, string.format('[%s] Commands:', _addon.name))
-        windower.add_to_chat(180, '//nm send - Enable/disable auto-reporting')
-        windower.add_to_chat(180, '//nm hud - Toggle HUD display')
-        windower.add_to_chat(180, '//nm tod <job_or_name> - Report TOD (in Limbus)')
-        windower.add_to_chat(180, '//nm tod <zone> <job_or_name> - Report TOD (outside Limbus)')
+        windower.add_to_chat(180, '[WhereIsNM] Commands:')
+        windower.add_to_chat(180, '//nm')
+        windower.add_to_chat(180, 'Show latest reports')
+        windower.add_to_chat(180,'\n')
+        windower.add_to_chat(180, '//nm submit floor')
+        windower.add_to_chat(180,'Toggle sending on floor change\n')
+        windower.add_to_chat(180,'\n')
+        windower.add_to_chat(180, '//nm hud')
+        windower.add_to_chat(180,'Toggle HUD display')
         return
-
     else
-        windower.add_to_chat(123, string.format('[%s] Unknown command. Use //nm help', _addon.name))
+        windower.add_to_chat(123, '[WhereIsNM] Unknown command. Use //nm help')
     end
 end
 
