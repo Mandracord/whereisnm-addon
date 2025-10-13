@@ -14,6 +14,17 @@ function M.handle_addon_command(command, args, deps)
     local handle_pending_reports = deps.handle_pending_reports
     local debug_enabled = deps.debug_enabled or function() return false end
     local displaybox = deps.displaybox
+    local function refresh_hud_if_active()
+        if not (settings and settings.hud and displaybox and displaybox.show and api) then
+            return
+        end
+        local limit = (settings.display_limit) or 10
+        local report_text = api:get_latest_reports(nil, limit)
+        if report_text then
+            displaybox.nm_info = report_text
+        end
+        displaybox:show()
+    end
 
     if command == 'send' then
         local previous = settings.send
@@ -68,7 +79,7 @@ function M.handle_addon_command(command, args, deps)
             windower.add_to_chat(123, '[WhereIsNM] Unknown command. Use //nm help')
             return
         end
-        
+
         local function normalize_state(flag, default_value)
             if flag == nil then
                 return default_value
@@ -135,14 +146,82 @@ function M.handle_addon_command(command, args, deps)
         local state_text = settings.hud and 'Enabled' or 'Disabled'
         windower.add_to_chat(123, string.format('[WhereIsNM] HUD %s.', state_text))
         return
+    elseif command == 'display' then
+        if not settings then
+            windower.add_to_chat(123, '[WhereIsNM] Settings unavailable.')
+            return
+        end
+
+        local category = args[1] and args[1]:lower()
+        if category == 'expired' or category == 'dead' then
+            local action = args[2] and args[2]:lower()
+            local current = settings.include_dead == nil and false or settings.include_dead
+            local new_state
+            if action == 'on' or action == 'enable' or action == 'true' then
+                new_state = true
+            elseif action == 'off' or action == 'disable' or action == 'false' then
+                new_state = false
+            else
+                new_state = not current
+            end
+
+            settings.include_dead = new_state
+            if settings_file then settings_file.save(settings) end
+
+            local state_text = new_state and 'Enabled' or 'Disabled'
+            windower.add_to_chat(123,
+                string.format('[WhereIsNM] Include expired reports: %s.', state_text))
+            if debug_enabled() then
+                logger:log(string.format('include_dead set to %s', tostring(new_state)))
+            end
+            refresh_hud_if_active()
+            return
+        end
+
+        windower.add_to_chat(123, '[WhereIsNM] Unknown display option. Try //nm display expired on|off.')
+        return
+
+    elseif command == 'expired' or command == 'dead' then
+        if not settings then
+            windower.add_to_chat(123, '[WhereIsNM] Settings unavailable.')
+            return
+        end
+
+        local action = args[1] and args[1]:lower()
+        local current = settings.include_dead == nil and false or settings.include_dead
+        local new_state
+        if action == 'on' or action == 'enable' or action == 'true' then
+            new_state = true
+        elseif action == 'off' or action == 'disable' or action == 'false' then
+            new_state = false
+        else
+            new_state = not current
+        end
+
+        settings.include_dead = new_state
+        if settings_file then settings_file.save(settings) end
+
+        local state_text = new_state and 'Enabled' or 'Disabled'
+        windower.add_to_chat(123,
+            string.format('[WhereIsNM] Include expired reports: %s.', state_text))
+        if debug_enabled() then
+            logger:log(string.format('include_dead set to %s', tostring(new_state)))
+        end
+        refresh_hud_if_active()
+        return
 
     elseif command == 'help' then
         windower.add_to_chat(180, '[WhereIsNM] Commands:')
         windower.add_to_chat(180, '//nm')
         windower.add_to_chat(180, 'Show latest reports')
         windower.add_to_chat(180,'\n')
+        windower.add_to_chat(180,'//nm display expired|dead')
+        windower.add_to_chat(180,'Toggle including expired or dead in reports\n')
+        windower.add_to_chat(180,'\n')
         windower.add_to_chat(180, '//nm submit floor')
         windower.add_to_chat(180,'Toggle sending on floor change\n')
+        windower.add_to_chat(180,'//nm display expired|dead')
+        windower.add_to_chat(180,'Toggle including expired or dead in reports\n')
         windower.add_to_chat(180,'\n')
         windower.add_to_chat(180, '//nm hud')
         windower.add_to_chat(180,'Toggle HUD display')

@@ -34,6 +34,7 @@ defaults.display_limit = 10
 defaults.debug = false
 defaults.hud = false
 defaults.api_base_url = Api.DEFAULT_BASE_URL
+defaults.include_dead = false
 
 ---Expose a copy of the defaults table for external use.
 ---@return table

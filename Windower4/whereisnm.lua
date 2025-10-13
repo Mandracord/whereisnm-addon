@@ -104,6 +104,10 @@ local api = Api.new({
     logger = logger,
     debug_enabled = debug_enabled,
     base_url = settings.api_base_url,
+    include_expired_provider = function()
+        local active_settings = current_settings()
+        return active_settings and active_settings.include_dead == true
+    end,
 })
 
 Queue.set_api(api)

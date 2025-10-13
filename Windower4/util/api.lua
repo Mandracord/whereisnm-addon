@@ -47,6 +47,7 @@ function Api.new(opts)
         end,
         formatter = opts.formatter or formatter,
         error_log_path = opts.error_log_path or DEFAULT_ERROR_LOG_PATH,
+        include_expired_provider = opts.include_expired_provider,
     }
 
     return setmetatable(instance, Api)
@@ -489,15 +490,26 @@ function Api:_format_reports_display(response_text, server_name)
                     display_name = display_name:gsub('^Temenos %- ', ''):gsub('^Apollyon %- ', ''):gsub(' Tower', '')
 
                     local time_pairs = {}
+                    local handled_kill = false
                     if bucket.latest then
                         local minutes_ago = bucket.latest.minutes
                         local minutes_since = bucket.latest.minutes_since or minutes_ago
                         if bucket.latest.expired then
-                            local reported = self.formatter.format_time_ago(minutes_ago)
-                            table.insert(time_pairs, {'Reported', reported})
-                            local expired_time = self.formatter.format_time_ago(minutes_since)
-                            local expired_label = (spawn_type == 'NM') and 'Killed' or 'No longer active'
-                            table.insert(time_pairs, {expired_label, expired_time})
+                            if spawn_type == 'NM' then
+                                if bucket.last_kill then
+                                    local killed = self.formatter.format_time_ago(bucket.last_kill.minutes)
+                                    table.insert(time_pairs, {'Killed', killed})
+                                    handled_kill = true
+                                else
+                                    local killed = self.formatter.format_time_ago(minutes_since)
+                                    table.insert(time_pairs, {'Killed', killed})
+                                    handled_kill = true
+                                end
+                            else
+                                local expired_time = self.formatter.format_time_ago(minutes_since)
+                                table.insert(time_pairs, {'Expired', expired_time})
+                                handled_kill = true
+                            end
                         else
                             local reported = self.formatter.format_time_ago(minutes_ago)
                             table.insert(time_pairs, {'Reported', reported})
@@ -505,11 +517,13 @@ function Api:_format_reports_display(response_text, server_name)
                                 local updated = self.formatter.format_time_ago(minutes_since)
                                 table.insert(time_pairs, {'Last seen', updated})
                             end
+                            handled_kill = true
                         end
                     end
-                    if bucket.last_kill then
+                    if bucket.last_kill and not handled_kill then
                         local killed = self.formatter.format_time_ago(bucket.last_kill.minutes)
-                        table.insert(time_pairs, {'Killed', killed})
+                        local label = (spawn_type == 'NM') and 'Killed' or 'Expired'
+                        table.insert(time_pairs, {label, killed})
                     end
 
                     local segments = {}
@@ -568,7 +582,15 @@ function Api:get_latest_reports(server_id, limit)
     local server = resources.servers[resolved_server_id]
     local server_name = (server and server.en) or context.server_name
 
-    local url = string.format('%s/api/v1/reports/recent/%s?limit=%d&includeExpired=true', self.base_url, server_name, limit or 10)
+    local include_expired = false
+    if self.include_expired_provider then
+        local ok, value = pcall(self.include_expired_provider)
+        if ok and value ~= nil then
+            include_expired = value == true
+        end
+    end
+
+    local url = string.format('%s/api/v1/reports/recent/%s?limit=%d&includeExpired=%s', self.base_url, server_name, limit or 10, include_expired and 'true' or 'false')
     local headers = {
         ['Authorization'] = 'Bearer ' .. context.token,
     }
