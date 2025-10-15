@@ -8,6 +8,15 @@ local current_settings
 local current_displaybox
 
 local defaults = {}
+defaults.send = true
+defaults.submit_on_zone_change = true
+defaults.submit_on_floor_change = true
+defaults.display_limit = 10
+defaults.debug = false
+defaults.hud = false
+defaults.api_base_url = Api.DEFAULT_BASE_URL
+defaults.include_dead = false
+defaults.use_packet_injection = false
 defaults.text = T {}
 defaults.text.bg = {
     alpha = 70,
@@ -27,14 +36,6 @@ defaults.text.text = {
 defaults.flags = T {}
 defaults.flags.bold = true
 defaults.flags.draggable = true
-defaults.send = true
-defaults.submit_on_zone_change = true
-defaults.submit_on_floor_change = true
-defaults.display_limit = 10
-defaults.debug = false
-defaults.hud = false
-defaults.api_base_url = Api.DEFAULT_BASE_URL
-defaults.include_dead = false
 
 ---Expose a copy of the defaults table for external use.
 ---@return table

@@ -2,6 +2,8 @@
 
 Track roaming Notorious Monsters (NMs) and ??? in Temenos and Apollyon. Data is shared across your server with automatic updates.
 
+> **Important:** This addon can inject packets to request NM/??? positions. Packet injection is **disabled by default** and should only be enabled if you understand the risk (`//nm packets on`). With packets off, scanning still works but only after an NM/??? is close enough to you.
+
 ## Quick Start
 
 1. Load: `//lua load whereisnm` or add to your `init.txt` file
@@ -12,22 +14,17 @@ Track roaming Notorious Monsters (NMs) and ??? in Temenos and Apollyon. Data is 
 | Command | Description | Example |
 |---------|-------------|---------|
 | `//nm` or `/nm` | Get latest NM and ??? locations | |
-| `//nm tod [job_or_name]` | Report NM kill (inside Limbus) | `//nm tod War` or `//nm tod Agoge` |
-| `//nm tod [zone] [job_or_name]` | Report NM kill (outside Limbus) | `//nm tod Temenos Agoge` |
-| `//nm hud` | Display/Hide the HUD | |
+| `//nm hud` | Display/Hide the HUD | `//nm hud off` |
+| `//nm packets` | Toggle packet injection (opt-in) | `//nm packets on` |
+| `//nm debug on\|off` | Toggle debug logging | `//nm debug on` |
+| `//nm status` | Show current settings and queue counts | |
 | `//nm help` | Show all commands | |
 
 **Note:** Commands work with `//` (Windower) or `/` (Ashita). TOD command accepts auto-translated terms for zone and job.
 
-## Job Reference
-
-Use job abbreviations (War, Mnk, Whm, etc.) or NM names (Agoge, Piety, Theophany, etc.) when reporting kills.
-
-See the [complete job/NM cheatcheat](https://whereisnm.com/documentation#cheatsheet) for all 22 jobs across both Temenos and Apollyon.
-
 ## Requirements
 
-- Windower 4 or ~~Ashita~~ (coming soon) 
+- Windower 4
 
 ## Links
 
