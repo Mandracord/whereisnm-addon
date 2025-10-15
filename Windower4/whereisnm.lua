@@ -1,6 +1,6 @@
 _addon.name = 'WhereIsNM'
 _addon.author = 'Mandracord Team'
-_addon.version = '0.0.10-BETA-1'
+_addon.version = '0.0.10-BETA-2'
 _addon.commands = {'nm', 'whereisnm'}
 
 ------------------------------------------------------------------------------------------------------------------------
@@ -20,8 +20,8 @@ local Commands = require('util.commands')
 local FloorDetector = require('util.floor_detector')
 
 -- Variables
-local SCAN_DELAY_PACKETS = 15
-local SCAN_DELAY = 12
+local INITIAL_SCAN_DELAY = 15
+local SCAN_LOOP_INTERVAL = 12
 
 ------------------------------------------------------------------------------------------------------------------------
 --[[
@@ -29,23 +29,9 @@ local SCAN_DELAY = 12
 CREDITS | SPECIAL THANKS | ACKNOWLEDGE
 ------------------------------------------------------------------------------------------------------------------------
 
-!! DISCLAIMER
-This addon can inject packets to scan for NMs and ??? across the zone.
-Packet injection carries some risk and should be used at your own discretion.
-The feature is disabled by default.
-
-Toggle it with:
-
-//nm packets 
-
-With injection off we still scan and report, but only after the NM/??? is close enough to appear near you.
-
-------------------------------------------------------------------------------------------------------------------------
-
 A big THANK YOU to the following people for some logic and inspiration:
 
 NAME                 URL
-Seth Van Heulen      https://codeberg.org/svanheulen 
 AkadenTK             https://github.com/AkadenTK/superwarp
 Aphung               https://github.com/aphung/whereisdi
 
@@ -107,7 +93,7 @@ local function total_pending_reports()
 end
 
 local floor_detector
-local legacy_scan_loop_active = false
+local scan_loop_active = false
 
 local handle_pending_reports
 
@@ -120,9 +106,6 @@ local function request_floor_scan(attempt, is_retry)
     end
 
     local settings = current_settings()
-    if not settings or settings.use_packet_injection then
-        return
-    end
 
     if not send_enabled() then
         return
@@ -138,9 +121,9 @@ local function request_floor_scan(attempt, is_retry)
 
     if debug_enabled() then
         if attempt == 1 then
-            logger:log('Scheduling legacy scan due to floor change')
+            logger:log('Scheduling scan due to floor change')
         else
-            logger:log(string.format('Retrying legacy scan (attempt %d)', attempt))
+            logger:log(string.format('Retrying scan (attempt %d)', attempt))
         end
     end
 
@@ -160,7 +143,7 @@ local function request_floor_scan(attempt, is_retry)
 
             if not context then
                 if debug_enabled() then
-                    logger:log('Legacy scan skipped: floor context still unavailable')
+                    logger:log('Scan skipped: floor context still unavailable')
                 end
                 if attempt < 4 then
                     request_floor_scan(attempt + 1, true)
@@ -168,11 +151,11 @@ local function request_floor_scan(attempt, is_retry)
                 return
             end
 
-            Scanner.set_legacy_floor_context(context)
+            Scanner.set_floor_context(context)
 
             if context.tower == 'entrance' then
                 if debug_enabled() then
-                    logger:log('Legacy scan skipped: entrance floor detected')
+                    logger:log('Scan skipped: entrance floor detected')
                 end
                 if send_enabled() then
                     handle_pending_reports()
@@ -181,36 +164,27 @@ local function request_floor_scan(attempt, is_retry)
             end
 
             Scanner.trigger_scan()
-            if not legacy_scan_loop_active then
+            if not scan_loop_active then
                 if debug_enabled() then
-                    logger:log('Legacy scan loop started')
+                    logger:log('Scan loop started')
                 end
-                legacy_scan_loop_active = true
+                scan_loop_active = true
                 local function loop()
-                    if not legacy_scan_loop_active then
-                        return
-                    end
-
-                    local settings = current_settings()
-                    if not settings or settings.use_packet_injection then
-                        legacy_scan_loop_active = false
-                        if debug_enabled() then
-                            logger:log('Legacy scan loop stopped')
-                        end
+                    if not scan_loop_active then
                         return
                     end
 
                     if not send_enabled() then
-                        coroutine.schedule(loop, SCAN_DELAY)
+                        coroutine.schedule(loop, SCAN_LOOP_INTERVAL)
                         return
                     end
 
                     local info_loop = windower.ffxi.get_info()
                     local zone_loop = info_loop and info_loop.zone
                     if not zone_loop or not Scanner.is_limbus_zone(zone_loop) then
-                        legacy_scan_loop_active = false
+                        scan_loop_active = false
                         if debug_enabled() then
-                            logger:log('Legacy scan loop stopped (left Limbus)')
+                            logger:log('Scan loop stopped (left Limbus)')
                         end
                         return
                     end
@@ -219,23 +193,23 @@ local function request_floor_scan(attempt, is_retry)
                     if loop_context then
                         if loop_context.tower == 'entrance' then
                             if debug_enabled() then
-                                logger:log('Legacy scan loop paused: entrance floor detected')
+                                logger:log('Scan loop paused: entrance floor detected')
                             end
                             if send_enabled() then
                                 handle_pending_reports()
                             end
                         else
-                            Scanner.set_legacy_floor_context(loop_context)
+                            Scanner.set_floor_context(loop_context)
                             Scanner.trigger_scan()
                         end
                     elseif debug_enabled() then
-                        logger:log('Legacy scan loop skipped: floor context unavailable')
+                        logger:log('Scan loop skipped: floor context unavailable')
                     end
 
-                    coroutine.schedule(loop, SCAN_DELAY)
+                    coroutine.schedule(loop, SCAN_LOOP_INTERVAL)
                 end
 
-                coroutine.schedule(loop, SCAN_DELAY)
+                coroutine.schedule(loop, SCAN_LOOP_INTERVAL)
             end
         end
     end, delay)
@@ -388,9 +362,6 @@ Scanner.set_scan_complete_callback(function(results)
         return
     end
 
-    local active_settings = current_settings()
-    local using_packet_injection = active_settings and active_settings.use_packet_injection == true
-
     local zone_info = windower.ffxi.get_info()
     local zone_id = zone_info and zone_info.zone
     local area
@@ -426,29 +397,8 @@ Scanner.set_scan_complete_callback(function(results)
         print_scan_summary(last_scan_summary)
     end
 
-    if not using_packet_injection then
-        if debug_enabled() then
-            logger:log('Sync skipped: packet injection disabled')
-        end
-        return
-    end
-
-    if not api or not api.sync_reports then
-        return
-    end
-
-    local ok, status_code, response_text = api:sync_reports({
-        area = area,
-        reports = reports_payload,
-        observed_count = observed_count,
-        empty_snapshot = observed_count == 0,
-    })
-
-    if not ok and debug_enabled() then
-        local message = string.format('Sync failed (%s): %s', tostring(status_code), tostring(response_text))
-        logger:log(message)
-    elseif ok and debug_enabled() then
-        logger:log(string.format('Sync submitted: %d reports for %s', #reports_payload, area))
+    if debug_enabled() then
+        logger:log('Sync skipped: in-range scanning mode')
     end
 
 end)
@@ -496,7 +446,7 @@ windower.register_event('load', 'login', function()
         local zone_id = info and info.zone
         if zone_id and Scanner.is_limbus_zone(zone_id) then
             if debug_enabled() then
-                logger:log(string.format('Scheduling scan in %d seconds (load)', SCAN_DELAY_PACKETS))
+                logger:log(string.format('Scheduling scan in %d seconds (load)', INITIAL_SCAN_DELAY))
             end
             coroutine.schedule(function()
                 if not send_enabled() then
@@ -506,7 +456,7 @@ windower.register_event('load', 'login', function()
                     logger:log('Triggering scan now (load)')
                 end
                 Scanner.trigger_scan()
-            end, SCAN_DELAY_PACKETS)
+            end, INITIAL_SCAN_DELAY)
         else
             Scanner.trigger_scan()
         end
@@ -520,13 +470,13 @@ windower.register_event('zone change', function(new_zone_id, prev_zone_id)
 
     if new_zone_id == 37 or new_zone_id == 38 or prev_zone_id == 37 or prev_zone_id == 38 then
         floor_detector:reset()
-        Scanner.set_legacy_floor_context(nil)
+        Scanner.set_floor_context(nil)
     end
 
-    if not Scanner.is_limbus_zone(new_zone_id) and legacy_scan_loop_active then
-        legacy_scan_loop_active = false
+    if not Scanner.is_limbus_zone(new_zone_id) and scan_loop_active then
+        scan_loop_active = false
         if debug_enabled() then
-            logger:log('Legacy scan loop stopped (zone change)')
+            logger:log('Scan loop stopped (zone change)')
         end
     end
 
@@ -547,7 +497,7 @@ windower.register_event('zone change', function(new_zone_id, prev_zone_id)
 
     if send_enabled() then
         if debug_enabled() then
-            logger:log(string.format('Scheduling scan in %d seconds', SCAN_DELAY_PACKETS))
+            logger:log(string.format('Scheduling scan in %d seconds', INITIAL_SCAN_DELAY))
         end
         coroutine.schedule(function()
             if not send_enabled() then
@@ -557,7 +507,7 @@ windower.register_event('zone change', function(new_zone_id, prev_zone_id)
                 logger:log('Triggering scan now')
             end
             Scanner.trigger_scan()
-        end, SCAN_DELAY_PACKETS)
+        end, INITIAL_SCAN_DELAY)
     end
 end)
 

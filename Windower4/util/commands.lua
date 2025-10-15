@@ -258,7 +258,6 @@ function M.handle_addon_command(command, args, deps)
 
         local send_state = enabled_disabled(setting_enabled(settings.send, true))
         local debug_state = enabled_disabled(settings.debug == true)
-        local packet_state = enabled_disabled(settings.use_packet_injection == true)
         local hud_state = enabled_disabled(settings.hud == true)
         local include_dead_state = enabled_disabled(settings.include_dead == true)
         local submit_zone_state = enabled_disabled(setting_enabled(settings.submit_on_zone_change, true))
@@ -267,39 +266,15 @@ function M.handle_addon_command(command, args, deps)
         local tod_queue = queue.get_tod_queue_count and queue.get_tod_queue_count() or 0
 
         windower.add_to_chat(123, '[WhereIsNM] Status:')
-        windower.add_to_chat(180, string.format('Send: %s \nDebug: %s\nPackets: %s', send_state, debug_state, packet_state))
-        windower.add_to_chat(180, string.format('HUD: %s\nDisplay dead/expired: %s\n', hud_state, include_dead_state))
-        windower.add_to_chat(180, string.format('Submit on zone: %s\nSubmit on floor: %s\n', submit_zone_state, submit_floor_state))
-        windower.add_to_chat(180, string.format('Pending reports: %d | TOD: %d', spawn_queue, tod_queue))
-        return
-    elseif command == 'packets' or command == 'packet' then
-        if not settings then
-            windower.add_to_chat(123, '[WhereIsNM] Settings unavailable.')
-            return
-        end
-
-        local action = args[1] and args[1]:lower()
-        local current = settings.use_packet_injection == true
-        local new_state
-
-        if action == 'on' or action == 'enable' or action == 'true' then
-            new_state = true
-        elseif action == 'off' or action == 'disable' or action == 'false' then
-            new_state = false
-        else
-            new_state = not current
-        end
-
-        settings.use_packet_injection = new_state
-        if settings_file then settings_file.save(settings) end
-
-        local state_text = new_state and 'Enabled' or 'Disabled'
-        windower.add_to_chat(123, string.format('[WhereIsNM] Packet scanning: %s.', state_text))
-
-        if new_state and not current then
-            windower.add_to_chat(180,
-                '[WhereIsNM] Warning: Packet injection modifies outgoing packets. Enable at your own risk.')
-        end
+        windower.add_to_chat(123, '[WhereIsNM] Status:')
+        windower.add_to_chat(123, '================================')
+        windower.add_to_chat(123, string.format('Send: %s', send_state))
+        windower.add_to_chat(123, string.format('Debug logging: %s', debug_state))
+        windower.add_to_chat(123, string.format('HUD: %s', hud_state))
+        windower.add_to_chat(123, string.format('Display dead/expired: %s', include_dead_state))
+        windower.add_to_chat(123, string.format('Submit on zone change: %s', submit_zone_state))
+        windower.add_to_chat(123, string.format('Submit on floor change: %s', submit_floor_state))
+        windower.add_to_chat(123, string.format('Pending reports queued: spawn=%d, tod=%d', spawn_queue, tod_queue))
         return
 
     elseif command == 'help' then
@@ -320,9 +295,6 @@ function M.handle_addon_command(command, args, deps)
         windower.add_to_chat(180,'\n')
         windower.add_to_chat(180, '//nm debug on|off')
         windower.add_to_chat(180,'Toggle debug logging')
-        windower.add_to_chat(180,'\n')
-        windower.add_to_chat(180, '//nm packets on|off')
-        windower.add_to_chat(180,'Toggle packet injection (use at your own risk)')
         windower.add_to_chat(180,'\n')
         windower.add_to_chat(180, '//nm status')
         windower.add_to_chat(180,'Show current configuration and queue counts')

@@ -3,11 +3,10 @@ local bit = require('bit')
 local queue = require('util.queue')
 local settingsFile = require('util.settings')
 local scanner_data = require('util.scanner_data')
-local legacy_scanner = require('util.legacy_scanner')
-require('pack')
+local mob_scanner = require('util.mob_scanner')
 
 local M = {}
-local legacy_floor_context = nil
+local floor_context = nil
 
 local function current_settings()
     return settingsFile.get()
@@ -153,15 +152,15 @@ local function register_entity(zone_id, mob_name, position, mob_id)
 end
 
 local function scan_without_packets(zone_id)
-    if not legacy_floor_context or not legacy_floor_context.area or not legacy_floor_context.tower
-        or not legacy_floor_context.floor then
+    if not floor_context or not floor_context.area or not floor_context.tower
+        or not floor_context.floor then
         if debug_enabled() then
-            windower.add_to_chat(123, '[WhereIsNM] Legacy scan skipped: floor context unavailable')
+            windower.add_to_chat(123, '[WhereIsNM] Scan skipped: floor context unavailable')
         end
         return
     end
 
-    legacy_scanner.scan({
+    mob_scanner.scan({
         zone_id = zone_id,
         is_already_scanned = function(name)
             return scanned_entities[name] == true
@@ -170,7 +169,7 @@ local function scan_without_packets(zone_id)
             scanned_entities[name] = true
         end,
         handle_entity = function(mob_name, position, mob_id)
-            register_with_context(zone_id, mob_name, legacy_floor_context, mob_id)
+            register_with_context(zone_id, mob_name, floor_context, mob_id)
         end,
     })
 end
@@ -192,39 +191,11 @@ function M.trigger_scan()
     scan_active = true
     reset_scan_state(zone_id)
 
-    local use_packets = settings and settings.use_packet_injection
-
-    if use_packets then
-        local mob_list = windower.ffxi.get_mob_list() or {}
-        local packet_count = 0
-
-        for mob_index, mob_name in pairs(mob_list) do
-            if scanner_data.is_tracked_entity(zone_id, mob_name) then
-                windower.packets.inject_outgoing(0x016, string.pack('IHH', 0x0216, mob_index, 0))
-                packet_count = packet_count + 1
-            end
-        end
-
-        if debug_enabled() then
-            windower.add_to_chat(123,
-                string.format('[WhereIsNM] Requested position updates for %d entities', packet_count))
-        end
-
-        coroutine.schedule(function()
-            scan_active = false
-            if debug_enabled() then
-                windower.add_to_chat(123, '[WhereIsNM] Scan complete')
-            end
-            dispatch_scan_complete()
-        end, 2)
-        return
-    end
-
     scan_without_packets(zone_id)
     scan_active = false
 
     if debug_enabled() then
-        windower.add_to_chat(123, '[WhereIsNM] Scan complete (legacy)')
+        windower.add_to_chat(123, '[WhereIsNM] Scan complete')
     end
 
     dispatch_scan_complete()
@@ -270,13 +241,13 @@ function M.set_nm_detected_callback(callback)
     nm_detected_callback = callback
 end
 
-function M.set_legacy_floor_context(context)
+function M.set_floor_context(context)
     if not context or not context.area or not context.tower or not context.floor then
-        legacy_floor_context = nil
+        floor_context = nil
         return
     end
 
-    legacy_floor_context = {
+    floor_context = {
         area = context.area,
         tower = context.tower,
         floor = context.floor,

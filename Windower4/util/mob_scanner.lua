@@ -2,7 +2,7 @@ require('luau')
 
 local scanner_data = require('util.scanner_data')
 
-local LegacyScanner = {}
+local MobScanner = {}
 
 local function safe_distance(distance_field)
     if not distance_field then
@@ -56,9 +56,9 @@ local function is_valid_candidate(zone_id, mob)
     return is_within_detection_range(mob)
 end
 
----Scan the visible mob array using legacy heuristics.
+---Scan the visible mob array and invoke a handler for tracked entities.
 ---@param opts table
-function LegacyScanner.scan(opts)
+function MobScanner.scan(opts)
     opts = opts or {}
 
     local zone_id = opts.zone_id
@@ -88,4 +88,4 @@ function LegacyScanner.scan(opts)
     end
 end
 
-return LegacyScanner
+return MobScanner
