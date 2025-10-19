@@ -66,7 +66,7 @@ local floor_zones = {
 }
 
 local floor_menu_lookup = {
-    --[1000] = {[1] = {key = 'Temenos:Entrance', display = 'Temenos Entrance'}},
+    [1000] = {[1] = {key = 'Temenos:Entrance', display = 'Temenos Entrance'}},
     [1001] = {[11] = {key = 'Temenos:N1', display = 'Temenos Northern Tower 1'}},
     [1002] = {[12] = {key = 'Temenos:N2', display = 'Temenos Northern Tower 2'}},
     [1003] = {[13] = {key = 'Temenos:N3', display = 'Temenos Northern Tower 3'}},
@@ -92,8 +92,8 @@ local floor_menu_lookup = {
     [1023] = {[42] = {key = 'Temenos:C2', display = 'Temenos Central Tower 2'}},
     [1024] = {[43] = {key = 'Temenos:C3', display = 'Temenos Central Tower 3'}},
     [1025] = {[44] = {key = 'Temenos:C4', display = 'Temenos Central Tower 4'}},
-    --[102] = {[1] = {key = 'Apollyon:E1', display = 'Apollyon Entrance 1'}},
-    --[103] = {[1] = {key = 'Apollyon:E2', display = 'Apollyon Entrance 2'}},
+    [102] = {[1] = {key = 'Apollyon:E1', display = 'Apollyon Entrance 1'}},
+    [103] = {[1] = {key = 'Apollyon:E2', display = 'Apollyon Entrance 2'}},
     [104] = {[11] = {key = 'Apollyon:NW1', display = 'Apollyon Northwest 1'}},
     [105] = {[12] = {key = 'Apollyon:NW2', display = 'Apollyon Northwest 2'}},
     [106] = {[13] = {key = 'Apollyon:NW3', display = 'Apollyon Northwest 3'}},

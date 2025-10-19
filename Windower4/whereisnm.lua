@@ -1,6 +1,6 @@
 _addon.name = 'WhereIsNM'
 _addon.author = 'Mandracord Team'
-_addon.version = '0.0.10-BETA-2'
+_addon.version = '0.0.10'
 _addon.commands = {'nm', 'whereisnm'}
 
 ------------------------------------------------------------------------------------------------------------------------
@@ -395,10 +395,6 @@ Scanner.set_scan_complete_callback(function(results)
     last_scan_summary = build_scan_summary(area, results)
     if (#reports_payload > 0) then
         print_scan_summary(last_scan_summary)
-    end
-
-    if debug_enabled() then
-        logger:log('Sync skipped: in-range scanning mode')
     end
 
 end)
