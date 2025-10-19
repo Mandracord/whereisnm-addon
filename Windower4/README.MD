@@ -21,7 +21,7 @@ Track roaming Notorious Monsters (NMs) and ??? in Temenos and Apollyon. Data is 
 
 ## Requirements
 
-- Windower 4
+- Windower 4 
 
 ## Links
 
