@@ -9,7 +9,7 @@ Track roaming Notorious Monsters (NMs) and ??? in Temenos and Apollyon. Data is 
 
 ## Commands
 
-| Command | Description | Example |
+| Command | Description | Example |  
 |---------|-------------|---------|
 | `//nm` or `/nm` | Get latest NM and ??? locations | |
 | `//nm hud` | Display/Hide the HUD | `//nm hud off` |
