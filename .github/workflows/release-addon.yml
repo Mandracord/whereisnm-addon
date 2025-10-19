@@ -35,11 +35,8 @@ jobs:
         mkdir -p addons/whereisnm/util
         
         cp Windower4/whereisnm.lua addons/whereisnm/
-        cp Windower4/util/api.lua addons/whereisnm/util/
-        cp Windower4/util/data.lua addons/whereisnm/util/
-        cp Windower4/util/format.lua addons/whereisnm/util/
-        cp Windower4/util/queue.lua addons/whereisnm/util/
-        cp Windower4/util/sha2.lua addons/whereisnm/util/
+        cp Windower4/README.MD addons/whereisnm/ || true
+        cp Windower4/util/*.lua addons/whereisnm/util/
 
     - name: Create zip file
       run: |
