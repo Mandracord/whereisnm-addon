@@ -11,7 +11,7 @@
 
 ## Display Units HUD
 
-We've developed a simple addon to display Units, for now you can download it ![here](https://github.com/Mandracord/Units)
+We've developed a simple addon to display Units, for now you can download it [here](https://github.com/Mandracord/Units)
 
 https://github.com/Mandracord/Units
 
