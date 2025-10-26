@@ -9,6 +9,9 @@
 
 ![GitHub Downloads](https://img.shields.io/github/downloads/Mandracord/whereisnm-addon/total) ![Latest Release](https://img.shields.io/github/v/release/Mandracord/whereisnm-addon) ![GitHub last commit](https://img.shields.io/github/last-commit/Mandracord/whereisnm-addon)  [![Discord Bot](https://img.shields.io/badge/Discord-Invite%20Bot-5865F2?logo=discord&logoColor=white)](https://whereisnm.com/discord)
 
+Track roaming Notorious Monsters (NMs) and ??? in Temenos and Apollyon. Data is shared across your server with automatic updates.
+
+
 ## Display Units HUD
 
 We've developed a simple addon to display Units, for now you can download it [here](https://github.com/Mandracord/Units)
@@ -16,9 +19,6 @@ We've developed a simple addon to display Units, for now you can download it [he
 https://github.com/Mandracord/Units
 
 In a future update we are planning to implement it into Where Is NM.
-
-
-Track roaming Notorious Monsters (NMs) and ??? in Temenos and Apollyon. Data is shared across your server with automatic updates.
 
 ## Quick Start
 
