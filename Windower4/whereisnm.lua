@@ -1,6 +1,6 @@
 _addon.name = 'WhereIsNM'
 _addon.author = 'Mandracord Team'
-_addon.version = '0.0.10'
+_addon.version = '1.0.0'
 _addon.commands = {'nm', 'whereisnm'}
 
 ------------------------------------------------------------------------------------------------------------------------
@@ -18,6 +18,7 @@ local TodTracker = require('util.tod_tracker')
 local Api = require('util.api')
 local Commands = require('util.commands')
 local FloorDetector = require('util.floor_detector')
+local CaptureConditions = require('util.capture_conditions')
 
 -- Variables
 local INITIAL_SCAN_DELAY = 15
@@ -88,11 +89,25 @@ local function debug_enabled()
     return active_settings and active_settings.debug
 end
 
+local function capture_enabled()
+    local active_settings = current_settings()
+    if not active_settings then
+        return false
+    end
+
+    if not active_settings.send then
+        return false
+    end
+
+    return active_settings.capture_objectives == true
+end
+
 local function total_pending_reports()
     return Queue.get_spawn_queue_count() + Queue.get_tod_queue_count()
 end
 
 local floor_detector
+local capture_conditions
 local scan_loop_active = false
 
 local handle_pending_reports
@@ -353,6 +368,18 @@ floor_detector = FloorDetector.new({
 })
 floor_detector:reset()
 
+capture_conditions = CaptureConditions.new({
+    logger = logger,
+    api = api,
+    enabled_provider = capture_enabled,
+    area_context_provider = function()
+        if not floor_detector or not floor_detector.get_floor_context then
+            return nil
+        end
+        return floor_detector:get_floor_context()
+    end,
+})
+
 Scanner.set_scan_complete_callback(function(results)
     if not send_enabled() then
         return
@@ -526,6 +553,20 @@ windower.register_event('incoming chunk', function(packet_id, packet_data)
     Scanner.process_entity_packet(packet_data)
 end)
 
+windower.register_event('incoming chunk', function(packet_id, packet_data)
+    if not capture_conditions or not capture_enabled() then
+        return
+    end
+    capture_conditions:handle_incoming_chunk(packet_id, packet_data)
+end)
+
+windower.register_event('incoming text', function(original, modified, mode)
+    if not capture_conditions or not capture_enabled() then
+        return
+    end
+    capture_conditions:handle_incoming_text(original, mode)
+end)
+
 ------------------------------------------------------------------------------------------------------------------------
 -- Command Handler
 ------------------------------------------------------------------------------------------------------------------------
@@ -542,5 +583,11 @@ windower.register_event('addon command', function(command, ...)
             settings_file = Settings,
             debug_enabled = debug_enabled,
             handle_pending_reports = handle_pending_reports,
+            capture_pending = function()
+                if not capture_conditions then
+                    return false
+                end
+                return capture_conditions:has_pending_state()
+            end,
         })
 end)

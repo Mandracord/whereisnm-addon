@@ -15,6 +15,7 @@ local DEFAULT_BASE_URL = 'https://whereisnm.com'
 local REPORTS_PATH = '/api/v1/reports'
 local SYNC_PATH = '/api/v1/reports/sync'
 local TOD_PATH = '/api/v1/reports/tod'
+local OBJECTIVES_PATH = '/api/v1/objectives'
 local VERSION_PATH = '/version'
 local DEFAULT_ERROR_LOG_PATH = 'data/api_errors.log'
 local CLIENT_HEADER = 'WhereIsNM-Addon'
@@ -40,6 +41,7 @@ function Api.new(opts)
         reports_endpoint = opts.reports_endpoint or (base_url .. REPORTS_PATH),
         tod_endpoint = opts.tod_endpoint or (base_url .. TOD_PATH),
         sync_endpoint = opts.sync_endpoint or (base_url .. SYNC_PATH),
+        objectives_endpoint = opts.objectives_endpoint or (base_url .. OBJECTIVES_PATH),
         version_url = opts.version_url or (base_url .. VERSION_PATH),
         logger = opts.logger,
         debug_enabled = opts.debug_enabled or function()
@@ -346,6 +348,65 @@ function Api:submit_tod_report(args)
     local location = self.formatter.format_location_name(args.area)
     windower.add_to_chat(123, string.format('[WhereIsNM] %s for %s', error_message, location))
     return false, status_code, response_text
+end
+
+---Submit objectives data (Temenos/Apollyon conditions).
+---@param args table
+---@return boolean success
+---@return number|nil status
+---@return string|nil response_text
+function Api:submit_objectives(args)
+    if not args or not args.area then
+        self:_log_error('OBJECTIVES_PAYLOAD', 'Missing area for objectives submission')
+        return false, nil, 'Missing area'
+    end
+
+    local context, context_error = self:_player_context()
+    if not context then
+        self:_log_error('OBJECTIVES_CONTEXT', context_error or 'unknown error')
+        return false, nil, context_error
+    end
+
+    local payload = {
+        area = args.area,
+        server = context.server_name,
+        token = context.token,
+    }
+
+    if args.status and args.status ~= '' then
+        payload.status = args.status
+    end
+
+    if args.recorded_at then
+        payload.recordedAt = args.recorded_at
+    else
+        payload.recordedAt = os.date('!%Y-%m-%dT%H:%M:%SZ')
+    end
+
+    local numeric_fields = {
+        'chestsOpened',
+        'chestsOpenedMax',
+        'nmKilled',
+        'nmKilledMax',
+        'questionSpawned',
+        'questionSpawnedMax',
+        'mobKilled',
+        'mobKilledMax',
+    }
+
+    for _, field in ipairs(numeric_fields) do
+        local value = args[field]
+        if value ~= nil then
+            payload[field] = value
+        end
+    end
+
+    local ok, status_code, response_text = self:_request('POST', self.objectives_endpoint, payload)
+    if ok then
+        self:_debug(string.format('OBJECTIVES %s submitted', args.area))
+    end
+
+    return ok, status_code, response_text
 end
 
 ---Submit a reconciliation payload listing all currently observed reports.

@@ -12,6 +12,9 @@ function M.handle_addon_command(command, args, deps)
     local settings = deps.settings
     local settings_file = deps.settings_file
     local handle_pending_reports = deps.handle_pending_reports
+    local capture_pending_provider = deps.capture_pending or function()
+        return false
+    end
     local debug_enabled = deps.debug_enabled or function() return false end
     local displaybox = deps.displaybox
     local function refresh_hud_if_active()
@@ -27,19 +30,26 @@ function M.handle_addon_command(command, args, deps)
     end
 
     if command == 'send' then
-        local previous = settings.send
-        settings.send = not settings.send
-        settings_file.save(settings)
-        local status = settings.send and 'Enabled' or 'Disabled'
-        local status_message
-        if settings.send then
-            status_message = string.format('[WhereIsNM] Sending Limbus data: %s. Thank you for contributing!', status)
-        else
-            status_message = string.format('[WhereIsNM] Sending Limbus data: %s.', status)
-        end
-        windower.add_to_chat(123, status_message)
+        local previous_send = settings.send == true
+        local new_state = not previous_send
+        settings.send = new_state
+        settings.capture_objectives = new_state
 
-        if settings.send and not previous then
+        if settings_file then
+            settings_file.save(settings)
+        end
+
+        local send_status = new_state and 'Enabled' or 'Disabled'
+        if new_state then
+            windower.add_to_chat(123, string.format('[WhereIsNM] Sending Limbus and Objectives data: %s. Thank you for contributing!', send_status))
+        else
+            windower.add_to_chat(123, string.format('[WhereIsNM] Sending Limbus and Objectives data: %s.', send_status))
+        end
+        if debug_enabled() and logger then
+            logger:log(string.format('capture_objectives set to %s', tostring(new_state)))
+        end
+
+        if new_state and not previous_send then
             queue.load_queue()
             handle_pending_reports()
             scanner.trigger_scan()
@@ -260,6 +270,8 @@ function M.handle_addon_command(command, args, deps)
         local debug_state = enabled_disabled(settings.debug == true)
         local hud_state = enabled_disabled(settings.hud == true)
         local include_dead_state = enabled_disabled(settings.include_dead == true)
+        local capture_state = enabled_disabled(settings.capture_objectives == true)
+        local capture_pending = capture_pending_provider() and 'Yes' or 'No'
         local submit_zone_state = enabled_disabled(setting_enabled(settings.submit_on_zone_change, true))
         local submit_floor_state = enabled_disabled(setting_enabled(settings.submit_on_floor_change, true))
         local spawn_queue = queue.get_spawn_queue_count and queue.get_spawn_queue_count() or 0
@@ -271,6 +283,8 @@ function M.handle_addon_command(command, args, deps)
         windower.add_to_chat(123, string.format('Debug logging: %s', debug_state))
         windower.add_to_chat(123, string.format('HUD: %s', hud_state))
         windower.add_to_chat(123, string.format('Display dead/expired: %s', include_dead_state))
+        windower.add_to_chat(123, string.format('Objective capture: %s', capture_state))
+        windower.add_to_chat(123, string.format('Objective capture pending: %s', capture_pending))
         windower.add_to_chat(123, string.format('Submit on zone change: %s', submit_zone_state))
         windower.add_to_chat(123, string.format('Submit on floor change: %s', submit_floor_state))
         windower.add_to_chat(123, string.format('Pending reports queued: spawn=%d, tod=%d', spawn_queue, tod_queue))
@@ -295,6 +309,9 @@ function M.handle_addon_command(command, args, deps)
         windower.add_to_chat(180, '\n')
         windower.add_to_chat(180, '//nm debug on|off')
         windower.add_to_chat(180, 'Toggle debug logging')
+        windower.add_to_chat(180, '\n')
+        windower.add_to_chat(180, '//nm send')
+        windower.add_to_chat(180, 'Toggle sending data (objective capture is tied to this setting)')
         windower.add_to_chat(180, '\n')
         windower.add_to_chat(180, '//nm status')
         windower.add_to_chat(180, 'Show current configuration and queue counts')

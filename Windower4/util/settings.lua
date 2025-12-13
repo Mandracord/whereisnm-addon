@@ -16,6 +16,7 @@ defaults.debug = false
 defaults.hud = false
 defaults.api_base_url = Api.DEFAULT_BASE_URL
 defaults.include_dead = false
+defaults.capture_objectives = true
 defaults.text = T {}
 defaults.text.bg = {
     alpha = 70,
