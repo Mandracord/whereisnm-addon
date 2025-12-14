@@ -5,10 +5,12 @@ local M = {}
 
 local spawn_queue_file_path = 'data/queue.lua'
 local tod_queue_file_path = 'data/tod_queue.lua'
+local objective_queue_file_path = 'data/objective_queue.lua'
 local debug_file_path = 'data/debug.txt'
 
 local spawn_queue = {}
 local tod_queue = {}
+local objective_queue = {}
 local api_client
 
 local function current_settings()
@@ -58,6 +60,10 @@ local function save_tod_queue()
     save_queue_to_file(tod_queue, tod_queue_file_path)
 end
 
+local function save_objective_queue()
+    save_queue_to_file(objective_queue, objective_queue_file_path)
+end
+
 local function load_queue_from_file(file_path)
     local success, data = pcall(dofile, windower.addon_path .. file_path)
     if success and type(data) == 'table' then
@@ -69,10 +75,14 @@ end
 function M.load_queue()
     spawn_queue = load_queue_from_file(spawn_queue_file_path)
     tod_queue = load_queue_from_file(tod_queue_file_path)
+    objective_queue = load_queue_from_file(objective_queue_file_path)
 
     if debug_enabled() then
-        windower.add_to_chat(123, string.format('[Queue] Loaded %d spawn and %d TOD reports', #spawn_queue, #tod_queue))
-        log_queue_debug(string.format('Loaded queues: %d spawn, %d TOD', #spawn_queue, #tod_queue))
+        windower.add_to_chat(123,
+            string.format('[Queue] Loaded %d spawn, %d TOD, %d objective reports', #spawn_queue, #tod_queue,
+                #objective_queue))
+        log_queue_debug(string.format('Loaded queues: %d spawn, %d TOD, %d objective', #spawn_queue, #tod_queue,
+            #objective_queue))
     end
 end
 
@@ -129,11 +139,40 @@ function M.queue_tod_report(area, tower, floor, mob_name, job_or_name)
     save_tod_queue()
 end
 
+function M.queue_objective_report(payload)
+    if not payload or not payload.area then
+        return
+    end
+
+    local entry = {
+        type = 'objective',
+        area = payload.area,
+        status = payload.status,
+        recorded_at = payload.recorded_at,
+        chestsOpened = payload.chestsOpened,
+        chestsOpenedMax = payload.chestsOpenedMax,
+        nmKilled = payload.nmKilled,
+        nmKilledMax = payload.nmKilledMax,
+        questionSpawned = payload.questionSpawned,
+        questionSpawnedMax = payload.questionSpawnedMax,
+        mobKilled = payload.mobKilled,
+        mobKilledMax = payload.mobKilledMax,
+        timestamp = os.time(),
+    }
+
+    table.insert(objective_queue, entry)
+    log_queue_debug(string.format('OBJECTIVE QUEUED: %s (Total: %d)', payload.area or 'unknown', #objective_queue))
+    save_objective_queue()
+    return true
+end
+
 local function submit_spawn_reports(opts, announce, errors)
     local spawn_sent = 0
     local spawn_failed = 0
+    local limit = opts.spawn_limit
 
-    for index = #spawn_queue, 1, -1 do
+    local index = #spawn_queue
+    while index >= 1 do
         local entry = spawn_queue[index]
         local ok, status_code, response_text = api_client:submit_spawn_report({
             area = entry.area,
@@ -156,6 +195,15 @@ local function submit_spawn_reports(opts, announce, errors)
                 response = response_text,
             }
         end
+
+        if limit then
+            limit = limit - 1
+            if limit <= 0 then
+                break
+            end
+        end
+
+        index = index - 1
     end
 
     if spawn_sent > 0 then
@@ -168,8 +216,10 @@ end
 local function submit_tod_reports(opts, announce, errors)
     local tod_sent = 0
     local tod_failed = 0
+    local limit = opts.tod_limit
 
-    for index = #tod_queue, 1, -1 do
+    local index = #tod_queue
+    while index >= 1 do
         local entry = tod_queue[index]
         local ok, status_code, response_text = api_client:submit_tod_report({
             area = entry.area,
@@ -193,6 +243,15 @@ local function submit_tod_reports(opts, announce, errors)
                 response = response_text,
             }
         end
+
+        if limit then
+            limit = limit - 1
+            if limit <= 0 then
+                break
+            end
+        end
+
+        index = index - 1
     end
 
     if tod_sent > 0 then
@@ -200,6 +259,59 @@ local function submit_tod_reports(opts, announce, errors)
     end
 
     return tod_sent, tod_failed
+end
+
+local function submit_objective_reports(opts, announce, errors)
+    opts = opts or {}
+    local objective_sent = 0
+    local objective_failed = 0
+
+    local limit = opts.objective_limit
+    local index = #objective_queue
+    while index >= 1 do
+        local entry = objective_queue[index]
+        local ok, status_code, response_text = api_client:submit_objectives({
+            area = entry.area,
+            status = entry.status,
+            recorded_at = entry.recorded_at,
+            chestsOpened = entry.chestsOpened,
+            chestsOpenedMax = entry.chestsOpenedMax,
+            nmKilled = entry.nmKilled,
+            nmKilledMax = entry.nmKilledMax,
+            questionSpawned = entry.questionSpawned,
+            questionSpawnedMax = entry.questionSpawnedMax,
+            mobKilled = entry.mobKilled,
+            mobKilledMax = entry.mobKilledMax,
+        })
+
+        if ok then
+            table.remove(objective_queue, index)
+            objective_sent = objective_sent + 1
+        else
+            objective_failed = objective_failed + 1
+            errors[#errors + 1] = {
+                type = 'objective',
+                entry = entry,
+                status = status_code,
+                response = response_text,
+            }
+        end
+
+        if limit then
+            limit = limit - 1
+            if limit <= 0 then
+                break
+            end
+        end
+
+        index = index - 1
+    end
+
+    if objective_sent > 0 then
+        save_objective_queue()
+    end
+
+    return objective_sent, objective_failed
 end
 
 function M.send_queued_reports(opts)
@@ -212,18 +324,46 @@ function M.send_queued_reports(opts)
             spawn_failed = #spawn_queue,
             tod_sent = 0,
             tod_failed = #tod_queue,
+            objective_sent = 0,
+            objective_failed = #objective_queue,
             errors = {'api_not_configured'},
         }
     end
 
+    local include_spawn = opts.include_spawn ~= false
+    local include_tod = opts.include_tod ~= false
+    local include_objectives = opts.include_objectives ~= false
+    local spawn_limit = opts.spawn_limit
+    local tod_limit = opts.tod_limit
+    local objective_limit = opts.objective_limit
     local announce = opts.announce == true
     local errors = {}
 
-    local spawn_sent, spawn_failed = submit_spawn_reports(opts, announce, errors)
-    local tod_sent, tod_failed = submit_tod_reports(opts, announce, errors)
+    local spawn_sent, spawn_failed = 0, 0
+    local tod_sent, tod_failed = 0, 0
+    local objective_sent, objective_failed = 0, 0
 
-    log_queue_debug(string.format('Sent queued reports: %d spawn sent, %d spawn failed; %d TOD sent, %d TOD failed',
-        spawn_sent, spawn_failed, tod_sent, tod_failed))
+    if include_spawn then
+        spawn_sent, spawn_failed = submit_spawn_reports({
+            spawn_limit = spawn_limit,
+        }, announce, errors)
+    end
+
+    if include_tod then
+        tod_sent, tod_failed = submit_tod_reports({
+            tod_limit = tod_limit,
+        }, announce, errors)
+    end
+
+    if include_objectives then
+        objective_sent, objective_failed = submit_objective_reports({
+            objective_limit = objective_limit,
+        }, announce, errors)
+    end
+
+    log_queue_debug(string.format(
+        'Sent queued reports: %d spawn sent, %d spawn failed; %d TOD sent, %d TOD failed; %d objectives sent, %d objectives failed',
+        spawn_sent, spawn_failed, tod_sent, tod_failed, objective_sent, objective_failed))
 
     if announce then
         local total_sent = spawn_sent + tod_sent
@@ -237,6 +377,18 @@ function M.send_queued_reports(opts)
             windower.add_to_chat(123,
                 string.format('[WhereIsNM] %d queued reports could not be sent; they remain queued.', total_failed))
         end
+
+        if include_objectives then
+            if objective_sent > 0 then
+                windower.add_to_chat(123, string.format('[WhereIsNM] Sent %d queued objective updates.',
+                    objective_sent))
+            end
+            if objective_failed > 0 then
+                windower.add_to_chat(123,
+                    string.format('[WhereIsNM] %d objective updates could not be sent; they remain queued.',
+                        objective_failed))
+            end
+        end
     end
 
     return {
@@ -244,6 +396,8 @@ function M.send_queued_reports(opts)
         spawn_failed = spawn_failed,
         tod_sent = tod_sent,
         tod_failed = tod_failed,
+        objective_sent = objective_sent,
+        objective_failed = objective_failed,
         errors = errors,
     }
 end
@@ -254,6 +408,10 @@ end
 
 function M.get_tod_queue_count()
     return #tod_queue
+end
+
+function M.get_objective_queue_count()
+    return #objective_queue
 end
 
 return M

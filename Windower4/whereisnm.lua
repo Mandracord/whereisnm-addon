@@ -1,6 +1,6 @@
 _addon.name = 'WhereIsNM'
 _addon.author = 'Mandracord Team'
-_addon.version = '1.0.0'
+_addon.version = '1.0.1'
 _addon.commands = {'nm', 'whereisnm'}
 
 ------------------------------------------------------------------------------------------------------------------------
@@ -48,9 +48,10 @@ See all release notes on https://whereisnm.com/release-notes
 ]]
 
 ------------------------------------------------------------------------------------------------------------------------
--- DO NOT EDIT BELOW
+-- !! DO NOT EDIT BELOW !!
 ------------------------------------------------------------------------------------------------------------------------
 
+local settings_defaults = Settings.get_defaults and Settings.get_defaults() or {}
 local settings, displaybox = Settings.load()
 local logger = Logger.new({
     enabled = settings.debug,
@@ -89,7 +90,29 @@ local function debug_enabled()
     return active_settings and active_settings.debug
 end
 
-local function capture_enabled()
+local function configured_batch_report_limit()
+    local active_settings = current_settings()
+    return (active_settings and active_settings.batch_report_limit) or settings_defaults.batch_report_limit or 3
+end
+
+local function configured_batch_flush_interval()
+    local active_settings = current_settings()
+    return (active_settings and active_settings.batch_flush_interval) or settings_defaults.batch_flush_interval or 3600
+end
+
+local function get_batch_limit(opts)
+    if opts and opts.limit then
+        return opts.limit
+    end
+    return configured_batch_report_limit()
+end
+
+local function batch_mode_enabled()
+    local active_settings = current_settings()
+    return active_settings and active_settings.submit_batch_mode == true
+end
+
+local function objective_reporting_enabled()
     local active_settings = current_settings()
     if not active_settings then
         return false
@@ -103,11 +126,15 @@ local function capture_enabled()
 end
 
 local function total_pending_reports()
-    return Queue.get_spawn_queue_count() + Queue.get_tod_queue_count()
+    local total = Queue.get_spawn_queue_count() + Queue.get_tod_queue_count()
+    if Queue.get_objective_queue_count then
+        total = total + Queue.get_objective_queue_count()
+    end
+    return total
 end
 
 local floor_detector
-local capture_conditions
+local objective_conditions
 local scan_loop_active = false
 
 local handle_pending_reports
@@ -173,7 +200,7 @@ local function request_floor_scan(attempt, is_retry)
                     logger:log('Scan skipped: entrance floor detected')
                 end
                 if send_enabled() then
-                    handle_pending_reports()
+                    handle_pending_reports({trigger = 'floor', limit = configured_batch_report_limit()})
                 end
                 return
             end
@@ -211,7 +238,7 @@ local function request_floor_scan(attempt, is_retry)
                                 logger:log('Scan loop paused: entrance floor detected')
                             end
                             if send_enabled() then
-                                handle_pending_reports()
+                                handle_pending_reports({trigger = 'floor', limit = configured_batch_report_limit()})
                             end
                         else
                             Scanner.set_floor_context(loop_context)
@@ -249,24 +276,132 @@ local api = Api.new({
 
 Queue.set_api(api)
 
-handle_pending_reports = function()
+handle_pending_reports = function(opts)
+    opts = opts or {}
+
+    if not send_enabled() then
+        return
+    end
+
+    local trigger = opts.trigger or 'manual'
+    local force_send = opts.force == true
+
     local pending_spawn = Queue.get_spawn_queue_count()
     local pending_tod = Queue.get_tod_queue_count()
-    local total_pending = pending_spawn + pending_tod
+    local include_objectives = objective_reporting_enabled()
+    local pending_objectives = include_objectives and Queue.get_objective_queue_count
+        and Queue.get_objective_queue_count() or 0
 
-    if total_pending > 0 then
-        windower.add_to_chat(123,
-            string.format('[%s] %d loaded pending reports (%d spawn, %d TOD).', _addon.name, total_pending,
-                pending_spawn, pending_tod))
-        windower.add_to_chat(123, string.format('[%s] Sending %d pending reports...', _addon.name, total_pending))
+    local total_pending = pending_spawn + pending_tod + pending_objectives
+    if total_pending == 0 then
+        return
+    end
 
-        if debug_enabled() then
-            logger:log(string.format('Loading %d pending reports (%d spawn, %d TOD)', total_pending, pending_spawn,
-                pending_tod))
+    local batching = batch_mode_enabled()
+    local should_batch = batching and not force_send and trigger ~= 'zone'
+    local batch_limit = get_batch_limit(opts)
+    local spawn_to_send = pending_spawn
+    local tod_to_send = pending_tod
+    local objective_to_send = pending_objectives
+
+    if should_batch then
+        if not batch_limit or batch_limit < 1 then
+            windower.add_to_chat(123,
+                string.format('[%s] Batch mode holding all pending reports (spawn=%d, tod=%d, objectives=%d).',
+                    _addon.name, pending_spawn, pending_tod, pending_objectives))
+            return
         end
 
-        Queue.send_queued_reports({announce = true})
+        local remaining = math.min(batch_limit, total_pending)
+        tod_to_send = math.min(pending_tod, remaining)
+        remaining = remaining - tod_to_send
+
+        spawn_to_send = 0
+        objective_to_send = 0
+
+        local spawn_used = 0
+        local objective_used = 0
+
+        local function spawn_available()
+            return pending_spawn - spawn_used
+        end
+
+        local function objective_available()
+            return pending_objectives - objective_used
+        end
+
+        local spawn_turn = true
+        while remaining > 0 do
+            local spawn_left = spawn_available()
+            local objective_left = objective_available()
+            if spawn_left <= 0 and objective_left <= 0 then
+                break
+            end
+
+            if spawn_turn and spawn_left > 0 then
+                spawn_used = spawn_used + 1
+                spawn_to_send = spawn_used
+                remaining = remaining - 1
+            elseif not spawn_turn and objective_left > 0 then
+                objective_used = objective_used + 1
+                objective_to_send = objective_used
+                remaining = remaining - 1
+            else
+                if spawn_left > 0 then
+                    spawn_used = spawn_used + 1
+                    spawn_to_send = spawn_used
+                    remaining = remaining - 1
+                elseif objective_left > 0 then
+                    objective_used = objective_used + 1
+                    objective_to_send = objective_used
+                    remaining = remaining - 1
+                end
+            end
+
+            spawn_turn = not spawn_turn
+        end
+
+        if (spawn_to_send + tod_to_send + objective_to_send) == 0 then
+            windower.add_to_chat(123,
+                string.format('[%s] Batch mode holding %d spawn, %d TOD, %d objectives.', _addon.name,
+                    pending_spawn, pending_tod, pending_objectives))
+            if debug_enabled() then
+                logger:log(string.format(
+                    'Batch mode deferring %d spawn, %d TOD, %d objectives (trigger=%s)', pending_spawn, pending_tod,
+                    pending_objectives, trigger))
+            end
+            return
+        end
     end
+
+    local total_to_send = spawn_to_send + tod_to_send + objective_to_send
+    if total_to_send == 0 then
+        return
+    end
+
+    local objective_label = ''
+    if objective_to_send > 0 then
+        objective_label = string.format(', %d objectives', objective_to_send)
+    end
+
+    windower.add_to_chat(123,
+        string.format('[%s] Sending %d pending reports (%d spawn, %d TOD%s).', _addon.name, total_to_send,
+            spawn_to_send, tod_to_send, objective_label))
+
+    if debug_enabled() then
+        logger:log(string.format('Sending %d pending reports (%d spawn, %d TOD%s) [trigger=%s, batch=%s]',
+            total_to_send, spawn_to_send, tod_to_send, objective_label, trigger, tostring(should_batch)))
+    end
+
+    Queue.send_queued_reports({
+        announce = true,
+        include_spawn = spawn_to_send > 0,
+        include_tod = tod_to_send > 0,
+        include_objectives = objective_to_send > 0,
+        spawn_limit = should_batch and spawn_to_send or nil,
+        tod_limit = should_batch and tod_to_send or nil,
+        objective_limit = should_batch and objective_to_send or nil,
+    })
 end
 
 local last_scan_summary
@@ -358,7 +493,7 @@ floor_detector = FloorDetector.new({
         if not send_enabled() then
             return
         end
-        handle_pending_reports()
+        handle_pending_reports({trigger = trigger, limit = configured_batch_report_limit()})
     end,
     announce = function(message)
         if submit_on_floor_change_enabled() then
@@ -368,17 +503,33 @@ floor_detector = FloorDetector.new({
 })
 floor_detector:reset()
 
-capture_conditions = CaptureConditions.new({
+objective_conditions = CaptureConditions.new({
     logger = logger,
     api = api,
-    enabled_provider = capture_enabled,
+    enabled_provider = objective_reporting_enabled,
+    debug_enabled_provider = debug_enabled,
     area_context_provider = function()
         if not floor_detector or not floor_detector.get_floor_context then
             return nil
         end
         return floor_detector:get_floor_context()
     end,
+    batch_enabled_provider = batch_mode_enabled,
+    queue_handler = function(payload)
+        return Queue.queue_objective_report(payload)
+    end,
 })
+
+local function schedule_batch_flush()
+    coroutine.schedule(function()
+        if batch_mode_enabled() then
+            handle_pending_reports({trigger = 'timer', limit = configured_batch_report_limit()})
+        end
+        schedule_batch_flush()
+    end, configured_batch_flush_interval())
+end
+
+schedule_batch_flush()
 
 Scanner.set_scan_complete_callback(function(results)
     if not send_enabled() then
@@ -464,7 +615,7 @@ windower.register_event('load', 'login', function()
     end
 
     if send_enabled() then
-        handle_pending_reports()
+        handle_pending_reports({trigger = 'load', limit = configured_batch_report_limit()})
         local info = windower.ffxi.get_info()
         local zone_id = info and info.zone
         if zone_id and Scanner.is_limbus_zone(zone_id) then
@@ -505,12 +656,7 @@ windower.register_event('zone change', function(new_zone_id, prev_zone_id)
 
     if prev_zone_id and (prev_zone_id == 37 or prev_zone_id == 38) then
         if send_enabled() and submit_on_zone_change_enabled() and total_pending_reports() > 0 then
-            windower.add_to_chat(123, string.format('[%s] Sending pending reports...', _addon.name))
-            if debug_enabled() then
-                logger:log('Sending pending reports on zone change')
-            end
-
-            Queue.send_queued_reports({announce = true})
+            handle_pending_reports({trigger = 'zone', force = true})
         end
     end
 
@@ -554,17 +700,17 @@ windower.register_event('incoming chunk', function(packet_id, packet_data)
 end)
 
 windower.register_event('incoming chunk', function(packet_id, packet_data)
-    if not capture_conditions or not capture_enabled() then
+    if not objective_conditions or not objective_reporting_enabled() then
         return
     end
-    capture_conditions:handle_incoming_chunk(packet_id, packet_data)
+    objective_conditions:handle_incoming_chunk(packet_id, packet_data)
 end)
 
 windower.register_event('incoming text', function(original, modified, mode)
-    if not capture_conditions or not capture_enabled() then
+    if not objective_conditions or not objective_reporting_enabled() then
         return
     end
-    capture_conditions:handle_incoming_text(original, mode)
+    objective_conditions:handle_incoming_text(original, mode)
 end)
 
 ------------------------------------------------------------------------------------------------------------------------

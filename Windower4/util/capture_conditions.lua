@@ -48,6 +48,11 @@ function CaptureConditions.new(opts)
         end,
         area_context_provider = opts.area_context_provider,
         now_provider = opts.now_provider or os.time,
+        batch_enabled_provider = opts.batch_enabled_provider,
+        queue_handler = opts.queue_handler,
+        debug_enabled_provider = opts.debug_enabled_provider or function()
+            return false
+        end,
     }
 
     return setmetatable(instance, CaptureConditions)
@@ -66,11 +71,29 @@ function CaptureConditions:_enabled()
     return false
 end
 
+function CaptureConditions:_batch_enabled()
+    local provider = self.batch_enabled_provider
+    if not provider then
+        return false
+    end
+    local ok, result = pcall(provider)
+    return ok and result == true
+end
+
 function CaptureConditions:_log(message)
     if not self.logger or not message then
         return
     end
     self.logger:log(string.format('[Capture] %s', message))
+end
+
+function CaptureConditions:_debug_enabled()
+    local provider = self.debug_enabled_provider
+    if not provider then
+        return false
+    end
+    local ok, result = pcall(provider)
+    return ok and result == true
 end
 
 function CaptureConditions:_resolve_area(zone_from_message)
@@ -299,6 +322,21 @@ end
 
 function CaptureConditions:_submit(payload)
     if not payload or not self.api or not self.api.submit_objectives then
+        return
+    end
+
+    if self.queue_handler and self:_batch_enabled() then
+        local ok, err = pcall(self.queue_handler, payload)
+        if not ok or err == false then
+            self:_log(string.format('Objective queueing failed for %s: %s', payload.area or 'unknown', tostring(err)))
+            return
+        end
+        local status_text = payload.status or 'n/a'
+        self:_log(string.format('Queued objectives for %s (status: %s)', payload.area, status_text))
+        if self:_debug_enabled() then
+            windower.add_to_chat(123, string.format('[WhereIsNM] Objectives queued for %s (%s).', payload.area,
+                status_text))
+        end
         return
     end
 

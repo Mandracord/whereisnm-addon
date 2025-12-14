@@ -51,7 +51,7 @@ function M.handle_addon_command(command, args, deps)
 
         if new_state and not previous_send then
             queue.load_queue()
-            handle_pending_reports()
+            handle_pending_reports({trigger = 'command'})
             scanner.trigger_scan()
         end
 
@@ -219,6 +219,33 @@ function M.handle_addon_command(command, args, deps)
         end
         refresh_hud_if_active()
         return
+    elseif command == 'batch' then
+        if not settings then
+            windower.add_to_chat(123, '[WhereIsNM] Settings unavailable.')
+            return
+        end
+
+        local action = args[1] and args[1]:lower()
+        local current = settings.submit_batch_mode == true
+        local new_state
+
+        if action == 'on' or action == 'enable' or action == 'true' then
+            new_state = true
+        elseif action == 'off' or action == 'disable' or action == 'false' then
+            new_state = false
+        else
+            new_state = not current
+        end
+
+        settings.submit_batch_mode = new_state
+        if settings_file then settings_file.save(settings) end
+
+        local state_text = new_state and 'Enabled' or 'Disabled'
+        windower.add_to_chat(123, string.format('[WhereIsNM] Batch submission %s.', state_text))
+        if debug_enabled() and logger then
+            logger:log(string.format('submit_batch_mode set to %s', tostring(new_state)))
+        end
+        return
     elseif command == 'debug' then
         if not settings then
             windower.add_to_chat(123, '[WhereIsNM] Settings unavailable.')
@@ -266,16 +293,22 @@ function M.handle_addon_command(command, args, deps)
             return flag
         end
 
+        local defaults = settings_file and settings_file.get_defaults and settings_file.get_defaults() or {}
+
         local send_state = enabled_disabled(setting_enabled(settings.send, true))
         local debug_state = enabled_disabled(settings.debug == true)
         local hud_state = enabled_disabled(settings.hud == true)
         local include_dead_state = enabled_disabled(settings.include_dead == true)
         local capture_state = enabled_disabled(settings.capture_objectives == true)
+        local batch_state = enabled_disabled(settings.submit_batch_mode == true)
         local capture_pending = capture_pending_provider() and 'Yes' or 'No'
         local submit_zone_state = enabled_disabled(setting_enabled(settings.submit_on_zone_change, true))
         local submit_floor_state = enabled_disabled(setting_enabled(settings.submit_on_floor_change, true))
         local spawn_queue = queue.get_spawn_queue_count and queue.get_spawn_queue_count() or 0
         local tod_queue = queue.get_tod_queue_count and queue.get_tod_queue_count() or 0
+        local objective_queue = queue.get_objective_queue_count and queue.get_objective_queue_count() or 0
+        local batch_limit_value = settings.batch_report_limit or defaults.batch_report_limit or 'n/a'
+        local batch_flush_value = settings.batch_flush_interval or defaults.batch_flush_interval or 'n/a'
 
         windower.add_to_chat(123, '[WhereIsNM] Status:')
         windower.add_to_chat(123, '=============================================')
@@ -283,11 +316,16 @@ function M.handle_addon_command(command, args, deps)
         windower.add_to_chat(123, string.format('Debug logging: %s', debug_state))
         windower.add_to_chat(123, string.format('HUD: %s', hud_state))
         windower.add_to_chat(123, string.format('Display dead/expired: %s', include_dead_state))
+        windower.add_to_chat(123, string.format('Batch submissions: %s', batch_state))
         windower.add_to_chat(123, string.format('Objective capture: %s', capture_state))
         windower.add_to_chat(123, string.format('Objective capture pending: %s', capture_pending))
         windower.add_to_chat(123, string.format('Submit on zone change: %s', submit_zone_state))
         windower.add_to_chat(123, string.format('Submit on floor change: %s', submit_floor_state))
-        windower.add_to_chat(123, string.format('Pending reports queued: spawn=%d, tod=%d', spawn_queue, tod_queue))
+        windower.add_to_chat(123,
+            string.format('Pending NM and ??? reports: %d | TOD: %d | Objectives: %d', spawn_queue, tod_queue,
+                objective_queue))
+        windower.add_to_chat(123, string.format('Batch report limit: %s', tostring(batch_limit_value)))
+        windower.add_to_chat(123, string.format('Batch flush interval (s): %s', tostring(batch_flush_value)))
         return
 
     elseif command == 'help' then
@@ -310,8 +348,11 @@ function M.handle_addon_command(command, args, deps)
         windower.add_to_chat(180, '//nm debug on|off')
         windower.add_to_chat(180, 'Toggle debug logging')
         windower.add_to_chat(180, '\n')
+        windower.add_to_chat(180, '//nm batch on|off')
+        windower.add_to_chat(180, 'Toggle batch submissions')
+        windower.add_to_chat(180, '\n')
         windower.add_to_chat(180, '//nm send')
-        windower.add_to_chat(180, 'Toggle sending data (objective capture is tied to this setting)')
+        windower.add_to_chat(180, 'Toggle sending data and objectives')
         windower.add_to_chat(180, '\n')
         windower.add_to_chat(180, '//nm status')
         windower.add_to_chat(180, 'Show current configuration and queue counts')
